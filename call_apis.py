@@ -32,15 +32,31 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                 st.info(f"🔹 Calling Tier-A (OpenAI) model ({model_name})...")
                 
             # Prepare parameters based on model
+            o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
+            is_o_series = model_name in o_series_models
+            
+            # Base parameters (will be adjusted for model type)
             params = {
                 "model": model_name,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
                 "max_tokens": 512,  # Generous buffer for JSON list
             }
             
+            # Add temperature for non-o-series (o-series only supports default temp=1.0)
+            if not is_o_series:
+                params["temperature"] = 0.0
+            
             # Apply model-specific parameter adjustments
             params = model_mapper.get_model_params(model_name, params)
+            
+            # For o-series models, modify the prompt to request clearer output
+            if is_o_series:
+                # Use system message to request structured output since response_format isn't available
+                system_prompt = "You are an AI assistant focused on taxonomy generation. Generate labels as requested in a clear, structured format."
+                params["messages"] = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt + "\n\nImportant: Provide a clear list of labels."}
+                ]
             
             # Make the API call with the adjusted parameters
             response = client.chat.completions.create(**params)
@@ -143,16 +159,36 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                 st.info(f"🔹 Calling Tier‑B (OpenAI) model ({model_name})...")
                 
             # Prepare parameters based on model
+            o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
+            is_o_series = model_name in o_series_models
+            
+            # Base parameters (will be adjusted for model type)
             params = {
                 "model": model_name,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
                 "max_tokens": 512,
-                "response_format": {"type": "json_object"}  # Request JSON
             }
+            
+            # Add temperature for non-o-series (o-series only supports default temp=1.0)
+            if not is_o_series:
+                params["temperature"] = 0.0
+            
+            # Add response_format for models that support it
+            # Note: Not all o-series models support structured JSON output formats
+            if not is_o_series:
+                params["response_format"] = {"type": "json_object"}  # Request JSON
             
             # Apply model-specific parameter adjustments
             params = model_mapper.get_model_params(model_name, params)
+            
+            # For o-series models, modify the prompt to request JSON-like output
+            if is_o_series:
+                # Use system message to request structured output since response_format isn't available
+                system_prompt = "You are an AI assistant focused on taxonomy refinement. Respond only with valid JSON in the requested format. No explanations or extra text."
+                params["messages"] = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt + "\n\nImportant: Respond ONLY with valid JSON. No explanations or other text."}
+                ]
             
             # Make the API call with the adjusted parameters
             response = client.chat.completions.create(**params)
