@@ -14,6 +14,9 @@ from typing import List, Dict, Optional, Any
 # Third-party Libraries
 import streamlit as st
 
+# Database models
+import db_models
+
 # API clients
 try:
     from openai import OpenAI, APIError as OpenAI_APIError, AuthenticationError as OpenAI_AuthError
