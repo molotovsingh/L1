@@ -1,0 +1,482 @@
+# --- Single Cell Interactive Taxonomy Discovery ---
+# Ensure you have run: pip install transformers accelerate torch sentencepiece "openai>=1.0.0" ipywidgets
+# Set OPENAI_API_KEY environment variable BEFORE launching Jupyter for Tier-B functionality.
+
+# ========== 0. Imports & Setup ==========
+import os
+import re
+import json
+import datetime
+import sys
+import logging
+from pathlib import Path
+from typing import List, Dict, Optional, Any
+import threading
+import time
+
+# Third-party Libraries
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+
+try:
+    from openai import OpenAI, APIError, AuthenticationError, RateLimitError, APIConnectionError
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = None # Set OpenAI to None if import fails
+    OPENAI_AVAILABLE = False
+
+# ----- Setup Logging -----
+# Clear previous handlers if re-running the cell
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+# Basic config (output will be redirected to widget)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# ----- Configuration (Defaults for Widgets) -----
+DEFAULT_TIER_A_MODEL: str = "meta-llama/Meta-Llama-3-8B-Instruct"
+DEFAULT_TIER_B_OPTIONS: List[str] = ["gpt-4o", "gpt-3.5-turbo", "None/Offline"]
+DEFAULT_MAX_LABELS: int = 9
+DEFAULT_MIN_LABELS: int = 8
+DEFAULT_DENY_LIST: str = "Funding\nHiring\nPartnership" # Use newline separation for Textarea
+DEFAULT_OUT_DIR: str = "taxonomies"
+
+# ----- Global Variables for Models (Load Once) -----
+tokA: Optional[AutoTokenizer] = None
+modA: Optional[AutoModelForCausalLM] = None
+model_load_status = widgets.Label("Tier-A Model Status: Not Loaded")
+model_load_lock = threading.Lock()
+model_loaded = False
+
+# ========== 1. Define Helper Functions ==========
+
+def load_tier_a_model_background(model_name: str):
+    """Loads the Tier-A model in a separate thread to avoid blocking UI."""
+    global tokA, modA, model_loaded
+    with model_load_lock:
+        if model_loaded:
+            logging.info("Tier-A model already loaded.")
+            return
+        try:
+            model_load_status.value = f"Tier-A Model Status: Loading {model_name}..."
+            logging.info(f"🔹 Background Loading Tier‑A model ({model_name})...")
+            tokA = AutoTokenizer.from_pretrained(model_name)
+            modA = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16,
+                device_map="auto",
+                trust_remote_code=True
+            )
+            model_load_status.value = f"Tier-A Model Status: Loaded ({model_name})"
+            logging.info("✅ Tier-A model loaded successfully.")
+            model_loaded = True
+        except Exception as e:
+            model_load_status.value = f"Tier-A Model Status: FAILED to load ({e})"
+            logging.error(f"Failed to load Tier-A model: {e}", exc_info=True)
+            tokA = None
+            modA = None
+            model_loaded = False # Ensure it's marked as not loaded on failure
+
+def call_tier_b(prompt: str, api_key: Optional[str], model_name: str) -> Optional[str]:
+    """Calls the configured Tier-B LLM API."""
+    if model_name.lower() == "none/offline":
+        logging.warning("Tier‑B model call skipped (selected None/Offline).")
+        return None
+    if not OPENAI_AVAILABLE:
+         logging.error("OpenAI library required for Tier-B call but not found/installed.")
+         return None
+    if not api_key:
+         logging.error("OPENAI_API_KEY required for Tier-B call but not found/set.")
+         return None
+
+    try:
+        client = OpenAI(api_key=api_key)
+        logging.info(f"🔹 Calling Tier‑B model ({model_name})...")
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=512,
+            response_format={"type": "json_object"} # Request JSON
+        )
+        content = response.choices[0].message.content
+        if content:
+             return content.strip()
+        else:
+             logging.error("Tier-B API returned an empty response.")
+             return None
+    except AuthenticationError:
+        logging.error("Tier-B API Error: Authentication failed. Check your OPENAI_API_KEY.")
+        return None
+    except RateLimitError:
+        logging.error("Tier-B API Error: Rate limit exceeded.")
+        return None
+    except APIConnectionError:
+         logging.error("Tier-B API Error: Could not connect to OpenAI API.")
+         return None
+    except APIError as e:
+        # Check for specific errors if needed, e.g., model not found
+        logging.error(f"Tier-B API Error: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during Tier-B call: {e}", exc_info=True)
+        return None
+
+# ========== 2. Define Core Taxonomy Logic ==========
+
+def generate_taxonomy(domain: str, tier_b_model: str, max_labels: int, min_labels: int, deny_list: set, out_dir: Path, openai_api_key: Optional[str]):
+    """The main function to generate and validate the taxonomy."""
+    global tokA, modA, model_loaded
+
+    if not domain:
+        logging.error("Domain input cannot be empty.")
+        return
+
+    if not model_loaded or tokA is None or modA is None:
+         logging.error("Tier-A model is not loaded. Cannot proceed.")
+         return
+
+    logging.info(f"Processing domain: {domain}")
+    out_dir.mkdir(exist_ok=True)
+
+    # ----- 3. Tier‑A candidate generation -----
+    prompt_A = f"""
+You are a domain taxonomy generator specializing in discrete events.
+
+Domain: {domain}
+
+TASK:
+Generate a list of 12–15 distinct, top-level (L1) categories representing *specific types of events* or *discrete occurrences* within the '{domain}' domain. Think incidents, launches, breakthroughs, failures, breaches, discoveries, major releases, regulatory actions, etc.
+
+Rules for Labels:
+1. Format: TitleCase, 1–4 words. May include one internal hyphen (e.g., Model-Launch, Data-Breach, Regulatory-Approval). Start with a capital letter. NO hash symbols (#).
+2. Event-Driven: Must describe *what happened* (an event, a change), not an ongoing state, capability, technology area, or general theme.
+3. Specificity: Prefer specific event types over overly broad categories.
+4. Exclusion: Avoid generic business terms like {', '.join(deny_list)}. These are handled separately.
+5. Output Format: Return ONLY a JSON array of strings. Example: ["Model-Launch", "System-Outage", "Major-Discovery"]
+
+Generate the JSON array now.
+"""
+
+    logging.info("🔹 Generating Tier‑A candidates...")
+    candidates: List[str] = []
+    try:
+        inputs = tokA(prompt_A, return_tensors="pt").to(modA.device)
+        with torch.no_grad():
+            outputs = modA.generate(
+                **inputs,
+                max_new_tokens=256, # Increased buffer
+                do_sample=False,
+                pad_token_id=tokA.eos_token_id # Explicitly set pad token if needed
+            )
+        resp_A = tokA.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+
+        json_match = re.search(r'\[.*?\]', resp_A, re.DOTALL | re.IGNORECASE) # Find bracketed list
+        if json_match:
+            json_str = json_match.group(0)
+            try:
+                candidates_raw = json.loads(json_str)
+                # Clean candidates robustly
+                candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if isinstance(c, str) and str(c).strip()]
+                logging.info(f"✅ Tier-A proposed {len(candidates)} labels (extracted JSON):\n{candidates}")
+            except json.JSONDecodeError:
+                 logging.warning(f"Tier-A JSON structure invalid in extracted part. Trying full response. Raw:\n---\n{resp_A}\n---")
+                 # Fallback to parsing the whole response carefully
+                 try:
+                     candidates_raw = json.loads(resp_A)
+                     candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if isinstance(c, str) and str(c).strip()]
+                     logging.info(f"✅ Tier-A proposed {len(candidates)} labels (full response parse):\n{candidates}")
+                 except json.JSONDecodeError:
+                      logging.error(f"Tier‑A returned unparsable JSON even on fallback. Raw response:\n---\n{resp_A}\n---")
+                      return # Stop processing if Tier-A fails completely
+        else:
+            logging.error(f"Tier-A did not return a recognizable JSON array. Raw response:\n---\n{resp_A}\n---")
+            return # Stop processing
+
+    except Exception as e:
+        logging.error(f"An error occurred during Tier-A generation: {e}", exc_info=True)
+        return # Stop processing
+
+    if not candidates:
+        logging.error("Tier-A generation resulted in zero valid candidates.")
+        return
+
+    # ----- 4. Tier‑B audit & refinement -----
+    approved: List[str] = []
+    rejected_info: Dict[str, str] = {}
+    tier_b_selected_model = tier_b_model # Get value from widget
+
+    if tier_b_selected_model.lower() != "none/offline":
+        prompt_B = f"""
+You are a meticulous taxonomy auditor enforcing specific principles.
+
+Candidate Event Labels for Domain '{domain}':
+{json.dumps(candidates, indent=2)}
+
+Your Task:
+Review the candidate labels based on the following principles and return a refined list.
+
+Principles to Enforce:
+1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states (e.g., "Machine Learning", "Cloud Infrastructure").
+2. Formatting: Ensure labels are 1–4 words, TitleCase. Hyphens are allowed ONLY between words (e.g., "Data-Breach" is okay, "AI-Powered" as an event type might be questionable unless it refers to a specific *launch* event). No leading symbols like '#'.
+3. Deny List: Reject any label containing the exact terms: {', '.join(deny_list)}.
+4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {max_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
+5. Output Structure: Return ONLY a JSON object with the following keys:
+   - "approved": A JSON array of strings containing the final, approved labels.
+   - "rejected": A JSON array of strings containing the labels that were rejected or merged away.
+   - "reason_rejected": A JSON object mapping each rejected label (from the "rejected" list) to a brief reason for rejection (e.g., "Not event-driven", "Synonym of X", "Contains denied term", "Too broad").
+
+Example Output Format:
+{{
+  "approved": ["Model-Launch", "System-Outage", "Regulatory-Action"],
+  "rejected": ["AI Research", "Funding Round", "ProductUpdate"],
+  "reason_rejected": {{
+    "AI Research": "Not event-driven, describes a theme.",
+    "Funding Round": "Contains denied term 'Funding'.",
+    "ProductUpdate": "Merged into Major-Release."
+  }}
+}}
+
+Return only the JSON object now.
+"""
+        audit_response_str = call_tier_b(prompt_B, openai_api_key, tier_b_selected_model)
+
+        if audit_response_str:
+            try:
+                audit_result = json.loads(audit_response_str)
+                if isinstance(audit_result, dict) and \
+                   "approved" in audit_result and isinstance(audit_result["approved"], list) and \
+                   "rejected" in audit_result and isinstance(audit_result["rejected"], list) and \
+                   "reason_rejected" in audit_result and isinstance(audit_result["reason_rejected"], dict):
+
+                    approved = [str(lbl).strip().lstrip('# ') for lbl in audit_result["approved"] if isinstance(lbl, str)]
+                    rejected_info = audit_result["reason_rejected"]
+                    logging.info(f"✅ Tier-B approved {len(approved)} labels after audit.")
+                    logging.info(f"   Approved: {approved}")
+                    if rejected_info:
+                         logging.info(f"   Rejection Reasons from Audit: {json.dumps(rejected_info, indent=2)}")
+                else:
+                    logging.warning("Tier-B response JSON structure is invalid. Falling back to Tier-A candidates.")
+                    approved = candidates[:max_labels]
+            except json.JSONDecodeError:
+                logging.warning(f"Tier-B returned unparsable JSON. Falling back to Tier-A candidates. Raw response:\n---\n{audit_response_str}\n---")
+                approved = candidates[:max_labels]
+        else:
+            logging.warning("Tier-B audit did not complete successfully. Proceeding with Tier-A candidates.")
+            approved = candidates[:max_labels]
+    else:
+        logging.info("🔹 Tier-B audit skipped (offline mode). Using top Tier-A candidates.")
+        approved = candidates[:max_labels]
+
+    # ----- 5. Post‑validation & Finalization -----
+    # Regex: Starts with UpperCase, then letters/numbers. Allows 0-3 hyphenated UpperCase words following. Total 1-4 "words".
+    pattern = re.compile(r"^[A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+){0,3}$")
+
+    final_labels: List[str] = []
+    rejected_post_validation: Dict[str, str] = {}
+
+    logging.info("🔹 Performing final validation...")
+    for lbl in approved:
+        label_norm = lbl.strip().lstrip('# ') # Clean again just in case
+        if not label_norm:
+            continue
+
+        # Check Deny List (case-insensitive)
+        if any(denied.lower() in label_norm.lower() for denied in deny_list):
+            rejected_post_validation[label_norm] = "Contains denied term"
+            logging.info(f"   Rejecting (Deny List): '{label_norm}'")
+            continue
+
+        # Check Format Pattern
+        if not pattern.match(label_norm):
+            rejected_post_validation[label_norm] = "Invalid format (expected TitleCase, 1-4 words, optional hyphen)"
+            logging.info(f"   Rejecting (Format): '{label_norm}'")
+            continue
+
+        final_labels.append(label_norm)
+
+    # Enforce limits
+    if len(final_labels) > max_labels:
+        logging.warning(f"Final list ({len(final_labels)}) exceeds MAX_LABELS ({max_labels}). Trimming.")
+        final_labels = final_labels[:max_labels]
+
+    if len(final_labels) < min_labels:
+        logging.error(f"🛑 Final label count ({len(final_labels)}) is less than minimum required ({min_labels}).")
+        logging.error("   Consider refining prompts, checking Tier-B audit, adjusting MIN/MAX_LABELS, or editing Deny List.")
+        if rejected_post_validation:
+             logging.error(f"   Labels rejected during final validation: {json.dumps(rejected_post_validation, indent=2)}")
+        # Don't exit, just report error in notebook output
+    else:
+         logging.info(f"\n✅ FINAL L1 LABELS ({len(final_labels)}): {final_labels}")
+
+         # ----- 6. Save & version -----
+         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+         # Sanitize domain name for filename
+         safe_domain = re.sub(r'[^\w\-]+', '_', domain)
+         fname = out_dir / f"l1_{safe_domain}_{timestamp}.json"
+         try:
+             with open(fname, "w") as f:
+                 json.dump(final_labels, f, indent=2)
+             logging.info(f"💾 Saved final labels to: {fname}")
+         except IOError as e:
+             logging.error(f"Failed to save output file to {fname}: {e}")
+
+    logging.info("✨ Taxonomy generation process complete.")
+
+
+# ========== 3. Create Interactive Widgets ==========
+
+# --- Layouts ---
+style = {'description_width': 'initial'}
+label_layout = widgets.Layout(width='150px')
+widget_layout = widgets.Layout(width='400px')
+
+# --- Input Widgets ---
+domain_widget = widgets.Text(
+    value='artificial-intelligence',
+    placeholder='e.g., quantum-computing, crispr-gene-editing',
+    description='Domain:',
+    style=style, layout=widget_layout
+)
+
+tier_b_widget = widgets.Dropdown(
+    options=DEFAULT_TIER_B_OPTIONS,
+    value=DEFAULT_TIER_B_OPTIONS[0] if OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY") else "None/Offline",
+    description='Tier-B Auditor:',
+    style=style, layout=widget_layout,
+    disabled=not OPENAI_AVAILABLE
+)
+
+max_labels_widget = widgets.IntSlider(
+    value=DEFAULT_MAX_LABELS, min=5, max=20, step=1,
+    description='Max Labels (Target):',
+    style=style, layout=widget_layout
+)
+
+min_labels_widget = widgets.IntSlider(
+    value=DEFAULT_MIN_LABELS, min=3, max=15, step=1,
+    description='Min Final Labels:',
+    style=style, layout=widget_layout
+)
+
+deny_list_widget = widgets.Textarea(
+    value=DEFAULT_DENY_LIST,
+    placeholder='Enter terms to reject, one per line',
+    description='Deny List (one per line):',
+    style=style, layout=widgets.Layout(width='400px', height='80px')
+)
+
+out_dir_widget = widgets.Text(
+    value=DEFAULT_OUT_DIR,
+    placeholder='Directory to save results',
+    description='Output Directory:',
+    style=style, layout=widget_layout
+)
+
+# --- Status & Button ---
+openai_key_status = widgets.Label(
+    value="OpenAI Key Status: FOUND" if os.getenv("OPENAI_API_KEY") else "OpenAI Key Status: NOT FOUND (Set OPENAI_API_KEY env var)",
+    layout=widgets.Layout(width='auto')
+)
+if not OPENAI_AVAILABLE:
+     openai_key_status.value = "OpenAI library not installed. Tier-B disabled."
+     openai_key_status.style.text_color = 'orange'
+elif not os.getenv("OPENAI_API_KEY"):
+     openai_key_status.style.text_color = 'red'
+else:
+     openai_key_status.style.text_color = 'green'
+
+run_button = widgets.Button(
+    description='Generate Taxonomy',
+    button_style='success', # 'success', 'info', 'warning', 'danger' or ''
+    tooltip='Click to start the taxonomy generation process',
+    icon='cogs' # Check FontAwesome icons
+)
+
+# --- Output Area ---
+output_widget = widgets.Output(layout={'border': '1px solid black', 'padding': '10px', 'overflow_y': 'scroll', 'height': '400px'})
+
+# ========== 4. Define Button Click Handler ==========
+
+def on_run_button_clicked(b):
+    # 1. Clear previous output
+    output_widget.clear_output()
+
+    # 2. Redirect print/logging to the output widget
+    with output_widget:
+        # Ensure logger is configured to show info level
+        logging.getLogger().setLevel(logging.INFO)
+        # Add handler to capture logs in widget (if not already added by basicConfig)
+        # Note: basicConfig usually adds a StreamHandler to root. Redirecting sys.stdout might be enough.
+        # If logs don't appear, uncomment below:
+        # log_handler = logging.StreamHandler(sys.stdout)
+        # log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        # logging.getLogger().addHandler(log_handler)
+
+        print("Starting taxonomy generation...\n---") # Use print for direct user feedback
+
+        # 3. Get current values from widgets
+        domain = domain_widget.value
+        tier_b_model = tier_b_widget.value
+        max_labels = max_labels_widget.value
+        min_labels = min_labels_widget.value
+        deny_list_text = deny_list_widget.value
+        out_dir_str = out_dir_widget.value
+
+        # 4. Prepare arguments
+        deny_list = {item.strip() for item in deny_list_text.split('\n') if item.strip()}
+        out_dir = Path(out_dir_str)
+        openai_api_key = os.getenv("OPENAI_API_KEY") # Fetch key at runtime
+
+        # 5. Validate Min/Max Labels
+        if min_labels > max_labels:
+             logging.error(f"Configuration Error: Min Final Labels ({min_labels}) cannot be greater than Max Labels ({max_labels}). Adjust sliders.")
+             return # Stop execution
+
+        # 6. Run the main logic
+        try:
+            generate_taxonomy(domain, tier_b_model, max_labels, min_labels, deny_list, out_dir, openai_api_key)
+        except Exception as e:
+            logging.error(f"An unexpected critical error occurred: {e}", exc_info=True)
+        finally:
+            print("\n---\nGeneration process finished.")
+            # If log handler was added manually:
+            # logging.getLogger().removeHandler(log_handler)
+
+
+# ========== 5. Display Widgets & Load Model ==========
+
+# --- Arrange Widgets ---
+config_box = widgets.VBox([
+    widgets.HBox([widgets.Label("Domain Configuration", layout=widgets.Layout(width='auto'))]),
+    widgets.HBox([widgets.Label("Domain:", layout=label_layout), domain_widget]),
+    widgets.HBox([widgets.Label("Tier-B Auditor:", layout=label_layout), tier_b_widget]),
+    widgets.HBox([widgets.Label("", layout=label_layout), openai_key_status]), # Status below Tier-B selector
+    widgets.HBox([widgets.Label("Label Count:", layout=widgets.Layout(width='auto'))]),
+    widgets.HBox([widgets.Label("Max (Target):", layout=label_layout), max_labels_widget]),
+    widgets.HBox([widgets.Label("Min (Required):", layout=label_layout), min_labels_widget]),
+    widgets.HBox([widgets.Label("Deny List:", layout=label_layout), deny_list_widget]),
+    widgets.HBox([widgets.Label("Output Dir:", layout=label_layout), out_dir_widget]),
+])
+
+control_box = widgets.VBox([
+    model_load_status, # Show model load status
+    run_button,
+    output_widget
+])
+
+# --- Display UI ---
+display(widgets.VBox([config_box, control_box]))
+
+# --- Trigger Background Model Load ---
+# Check if already loaded to prevent reload on cell re-run if kernel is same
+if not model_loaded:
+    model_loader_thread = threading.Thread(target=load_tier_a_model_background, args=(DEFAULT_TIER_A_MODEL,))
+    model_loader_thread.start()
+else:
+     model_load_status.value = f"Tier-A Model Status: Already Loaded ({DEFAULT_TIER_A_MODEL})"
+
+
+# --- Link Button Action ---
+run_button.on_click(on_run_button_clicked)

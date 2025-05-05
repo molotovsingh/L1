@@ -1,0 +1,540 @@
+# --- Single Cell API-Only Interactive Taxonomy Discovery ---
+# Ensure you have run: pip install "openai>=1.0.0" ipywidgets perplexity-ai
+# Set PERPLEXITY_API_KEY and OPENAI_API_KEY environment variables BEFORE launching Jupyter.
+
+# ========== 0. Imports & Setup ==========
+import os
+import re
+import json
+import datetime
+import sys
+import logging
+from pathlib import Path
+from typing import List, Dict, Optional, Any
+
+# Third-party Libraries for APIs & Widgets
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+
+try:
+    from openai import OpenAI, APIError as OpenAI_APIError, AuthenticationError as OpenAI_AuthError, RateLimitError as OpenAI_RateLimitError, APIConnectionError as OpenAI_ConnError
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = None # Set OpenAI to None if import fails
+    OPENAI_AVAILABLE = False
+
+try:
+    from perplexity.client import Perplexity, APIError as PPLX_APIError, AuthenticationError as PPLX_AuthError, RateLimitError as PPLX_RateLimitError, APIConnectionError as PPLX_ConnError
+    PERPLEXITY_AVAILABLE = True
+except ImportError:
+    Perplexity = None
+    PERPLEXITY_AVAILABLE = False
+
+
+# ----- Setup Logging -----
+# Clear previous handlers if re-running the cell
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+# Basic config (output will be redirected to widget)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# ----- Configuration (Defaults for Widgets) -----
+# Common Perplexity models - check their docs for latest/best options
+DEFAULT_TIER_A_OPTIONS: List[str] = [
+    "llama-3-sonar-small-32k-online", # Faster, potentially uses web search
+    "llama-3-sonar-small-32k-chat",
+    "llama-3-sonar-large-32k-online", # Slower, larger, potentially uses web search
+    "llama-3-sonar-large-32k-chat",
+    "llama-3-8b-instruct", # Closer to original local model
+    "llama-3-70b-instruct", # Powerful option
+    "mixtral-8x7b-instruct"
+]
+DEFAULT_TIER_B_OPTIONS: List[str] = ["gpt-4o", "gpt-3.5-turbo", "None/Offline"]
+DEFAULT_MAX_LABELS: int = 9
+DEFAULT_MIN_LABELS: int = 8
+DEFAULT_DENY_LIST: str = "Funding\nHiring\nPartnership" # Use newline separation for Textarea
+DEFAULT_OUT_DIR: str = "taxonomies"
+
+# ========== 1. Define API Helper Functions ==========
+
+def call_perplexity_api(prompt: str, api_key: Optional[str], model_name: str) -> Optional[str]:
+    """Calls the Perplexity API."""
+    if not PERPLEXITY_AVAILABLE:
+        logging.error("Perplexity library required for Tier-A call but not found/installed.")
+        return None
+    if not api_key:
+        logging.error("PERPLEXITY_API_KEY required for Tier-A call but not found/set.")
+        return None
+
+    try:
+        client = Perplexity(api_key=api_key)
+        logging.info(f"🔹 Calling Tier-A (Perplexity) model ({model_name})...")
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=512, # Generous buffer for JSON list
+        )
+        content = response.choices[0].message.content
+        if content:
+             return content.strip()
+        else:
+             logging.error("Tier-A (Perplexity) API returned an empty response.")
+             return None
+    except PPLX_AuthError:
+        logging.error("Tier-A API Error (Perplexity): Authentication failed. Check your PERPLEXITY_API_KEY.")
+        return None
+    except PPLX_RateLimitError:
+        logging.error("Tier-A API Error (Perplexity): Rate limit exceeded.")
+        return None
+    except PPLX_ConnError:
+         logging.error("Tier-A API Error (Perplexity): Could not connect to Perplexity API.")
+         return None
+    except PPLX_APIError as e:
+        logging.error(f"Tier-A API Error (Perplexity): {e}")
+        return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during Tier-A (Perplexity) call: {e}", exc_info=True)
+        return None
+
+
+def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Optional[str]:
+    """Calls the OpenAI API (Tier-B)."""
+    if model_name.lower() == "none/offline":
+        logging.warning("Tier‑B model call skipped (selected None/Offline).")
+        return None
+    if not OPENAI_AVAILABLE:
+         logging.error("OpenAI library required for Tier-B call but not found/installed.")
+         return None
+    if not api_key:
+         logging.error("OPENAI_API_KEY required for Tier-B call but not found/set.")
+         return None
+
+    try:
+        client = OpenAI(api_key=api_key)
+        logging.info(f"🔹 Calling Tier‑B (OpenAI) model ({model_name})...")
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=512,
+            response_format={"type": "json_object"} # Request JSON
+        )
+        content = response.choices[0].message.content
+        if content:
+             return content.strip()
+        else:
+             logging.error("Tier-B (OpenAI) API returned an empty response.")
+             return None
+    except OpenAI_AuthError:
+        logging.error("Tier-B API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
+        return None
+    except OpenAI_RateLimitError:
+        logging.error("Tier-B API Error (OpenAI): Rate limit exceeded.")
+        return None
+    except OpenAI_ConnError:
+         logging.error("Tier-B API Error (OpenAI): Could not connect to OpenAI API.")
+         return None
+    except OpenAI_APIError as e:
+        logging.error(f"Tier-B API Error (OpenAI): {e}")
+        return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during Tier-B (OpenAI) call: {e}", exc_info=True)
+        return None
+
+# ========== 2. Define Core Taxonomy Logic ==========
+
+def generate_taxonomy(domain: str, tier_a_model: str, tier_b_model: str, max_labels: int, min_labels: int, deny_list: set, out_dir: Path, perplexity_api_key: Optional[str], openai_api_key: Optional[str]):
+    """The main function to generate and validate the taxonomy using APIs."""
+
+    if not domain:
+        logging.error("Domain input cannot be empty.")
+        return
+
+    logging.info(f"Processing domain: {domain}")
+    out_dir.mkdir(exist_ok=True)
+
+    # ----- 3. Tier‑A candidate generation (Perplexity API) -----
+    prompt_A = f"""
+You are a domain taxonomy generator specializing in discrete events.
+
+Domain: {domain}
+
+TASK:
+Generate a list of 12–15 distinct, top-level (L1) categories representing *specific types of events* or *discrete occurrences* within the '{domain}' domain. Think incidents, launches, breakthroughs, failures, breaches, discoveries, major releases, regulatory actions, etc.
+
+Rules for Labels:
+1. Format: TitleCase, 1–4 words. May include one internal hyphen (e.g., Model-Launch, Data-Breach, Regulatory-Approval). Start with a capital letter. NO hash symbols (#).
+2. Event-Driven: Must describe *what happened* (an event, a change), not an ongoing state, capability, technology area, or general theme.
+3. Specificity: Prefer specific event types over overly broad categories.
+4. Exclusion: Avoid generic business terms like {', '.join(deny_list)}. These are handled separately.
+5. Output Format: Return ONLY a JSON array of strings. Example: ["Model-Launch", "System-Outage", "Major-Discovery"]
+
+Generate the JSON array now.
+"""
+
+    logging.info("🔹 Generating Tier‑A candidates via Perplexity API...")
+    candidates: List[str] = []
+    resp_A = call_perplexity_api(prompt_A, perplexity_api_key, tier_a_model)
+
+    if resp_A:
+        # Attempt to extract JSON - LLMs sometimes add preamble/postamble text
+        json_match = re.search(r'\[.*?\]', resp_A, re.DOTALL | re.IGNORECASE) # Find bracketed list more robustly
+        if json_match:
+            json_str = json_match.group(0)
+            try:
+                candidates_raw = json.loads(json_str)
+                # Clean candidates robustly
+                candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if isinstance(c, str) and str(c).strip()]
+                logging.info(f"✅ Tier-A proposed {len(candidates)} labels (extracted JSON):\n{candidates}")
+            except json.JSONDecodeError:
+                 logging.warning(f"Tier-A JSON structure invalid in extracted part. Trying full response. Raw:\n---\n{resp_A}\n---")
+                 # Fallback to parsing the whole response carefully
+                 try:
+                     # A final attempt - maybe it's just the array without brackets in text
+                     if resp_A.strip().startswith('"') and resp_A.strip().endswith('"'):
+                         resp_A_maybe_list = f"[{resp_A}]" # Wrap in brackets if it looks like comma-sep strings
+                     else:
+                         resp_A_maybe_list = resp_A # Try as is
+                     candidates_raw = json.loads(resp_A_maybe_list)
+                     candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if isinstance(c, str) and str(c).strip()]
+                     logging.info(f"✅ Tier-A proposed {len(candidates)} labels (full response parse):\n{candidates}")
+                 except json.JSONDecodeError:
+                      logging.error(f"Tier‑A returned unparsable JSON even on fallback. Raw response:\n---\n{resp_A}\n---")
+                      return # Stop processing if Tier-A fails completely
+        else:
+             # Maybe the LLM ignored the JSON request and just gave a list
+             lines = [line.strip().lstrip('- ').lstrip('* ').lstrip('# ') for line in resp_A.split('\n') if line.strip()]
+             # Basic check if lines look like labels
+             if lines and len(lines) > 3 and all(1 <= len(line.split()) <= 5 for line in lines):
+                  candidates = lines
+                  logging.warning(f"Tier-A did not return JSON, but parsed {len(candidates)} lines as potential labels:\n{candidates}")
+             else:
+                  logging.error(f"Tier-A did not return a recognizable JSON array or list. Raw response:\n---\n{resp_A}\n---")
+                  return # Stop processing
+
+    else:
+        logging.error("Tier-A generation failed (API call error or empty response).")
+        return # Stop processing
+
+    if not candidates:
+        logging.error("Tier-A generation resulted in zero valid candidates.")
+        return
+
+    # ----- 4. Tier‑B audit & refinement (OpenAI API) -----
+    approved: List[str] = []
+    rejected_info: Dict[str, str] = {}
+    tier_b_selected_model = tier_b_model # Get value from widget
+
+    if tier_b_selected_model.lower() != "none/offline":
+        prompt_B = f"""
+You are a meticulous taxonomy auditor enforcing specific principles.
+
+Candidate Event Labels for Domain '{domain}':
+{json.dumps(candidates, indent=2)}
+
+Your Task:
+Review the candidate labels based on the following principles and return a refined list.
+
+Principles to Enforce:
+1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states (e.g., "Machine Learning", "Cloud Infrastructure").
+2. Formatting: Ensure labels are 1–4 words, TitleCase. Hyphens are allowed ONLY between words (e.g., "Data-Breach" is okay, "AI-Powered" as an event type might be questionable unless it refers to a specific *launch* event). No leading symbols like '#'.
+3. Deny List: Reject any label containing the exact terms: {', '.join(deny_list)}.
+4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {max_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
+5. Output Structure: Return ONLY a JSON object with the following keys:
+   - "approved": A JSON array of strings containing the final, approved labels.
+   - "rejected": A JSON array of strings containing the labels that were rejected or merged away.
+   - "reason_rejected": A JSON object mapping each rejected label (from the "rejected" list) to a brief reason for rejection (e.g., "Not event-driven", "Synonym of X", "Contains denied term", "Too broad").
+
+Example Output Format:
+{{
+  "approved": ["Model-Launch", "System-Outage", "Regulatory-Action"],
+  "rejected": ["AI Research", "Funding Round", "ProductUpdate"],
+  "reason_rejected": {{
+    "AI Research": "Not event-driven, describes a theme.",
+    "Funding Round": "Contains denied term 'Funding'.",
+    "ProductUpdate": "Merged into Major-Release."
+  }}
+}}
+
+Return only the JSON object now.
+"""
+        audit_response_str = call_openai_api(prompt_B, openai_api_key, tier_b_selected_model)
+
+        if audit_response_str:
+            try:
+                audit_result = json.loads(audit_response_str)
+                if isinstance(audit_result, dict) and \
+                   "approved" in audit_result and isinstance(audit_result["approved"], list) and \
+                   "rejected" in audit_result and isinstance(audit_result["rejected"], list) and \
+                   "reason_rejected" in audit_result and isinstance(audit_result["reason_rejected"], dict):
+
+                    approved = [str(lbl).strip().lstrip('# ') for lbl in audit_result["approved"] if isinstance(lbl, str)]
+                    rejected_info = audit_result["reason_rejected"]
+                    logging.info(f"✅ Tier-B approved {len(approved)} labels after audit.")
+                    logging.info(f"   Approved: {approved}")
+                    if rejected_info:
+                         logging.info(f"   Rejection Reasons from Audit: {json.dumps(rejected_info, indent=2)}")
+                else:
+                    logging.warning("Tier-B response JSON structure is invalid. Falling back to Tier-A candidates.")
+                    approved = candidates[:max_labels]
+            except json.JSONDecodeError:
+                logging.warning(f"Tier-B returned unparsable JSON. Falling back to Tier-A candidates. Raw response:\n---\n{audit_response_str}\n---")
+                approved = candidates[:max_labels]
+        else:
+            logging.warning("Tier-B audit did not complete successfully (API Error or empty response). Proceeding with Tier-A candidates.")
+            approved = candidates[:max_labels]
+    else:
+        logging.info("🔹 Tier-B audit skipped (offline mode). Using top Tier-A candidates.")
+        approved = candidates[:max_labels]
+
+    # ----- 5. Post‑validation & Finalization -----
+    # Regex: Starts with UpperCase, then letters/numbers. Allows 0-3 hyphenated UpperCase words following. Total 1-4 "words".
+    pattern = re.compile(r"^[A-Z][A-Za-z0-9]+(?:-[A-Z][A-Za-z0-9]+){0,3}$")
+
+    final_labels: List[str] = []
+    rejected_post_validation: Dict[str, str] = {}
+
+    logging.info("🔹 Performing final validation...")
+    for lbl in approved:
+        label_norm = lbl.strip().lstrip('# ') # Clean again just in case
+        if not label_norm:
+            continue
+
+        # Check Deny List (case-insensitive)
+        if any(denied.lower() in label_norm.lower() for denied in deny_list):
+            rejected_post_validation[label_norm] = "Contains denied term"
+            logging.info(f"   Rejecting (Deny List): '{label_norm}'")
+            continue
+
+        # Check Format Pattern
+        if not pattern.match(label_norm):
+            rejected_post_validation[label_norm] = f"Invalid format (expected TitleCase/PascalCase, 1-4 words, optional hyphen between words). Failed regex: {pattern.pattern}"
+            logging.info(f"   Rejecting (Format): '{label_norm}'")
+            continue
+
+        final_labels.append(label_norm)
+
+    # Enforce limits
+    if len(final_labels) > max_labels:
+        logging.warning(f"Final list ({len(final_labels)}) exceeds MAX_LABELS ({max_labels}). Trimming.")
+        final_labels = final_labels[:max_labels]
+
+    if len(final_labels) < min_labels:
+        logging.error(f"🛑 Final label count ({len(final_labels)}) is less than minimum required ({min_labels}).")
+        logging.error("   Consider refining prompts, checking Tier-B audit, adjusting MIN/MAX_LABELS, or editing Deny List.")
+        if rejected_post_validation:
+             logging.error(f"   Labels rejected during final validation: {json.dumps(rejected_post_validation, indent=2)}")
+        # Don't exit, just report error in notebook output
+    else:
+         logging.info(f"\n✅ FINAL L1 LABELS ({len(final_labels)}): {final_labels}")
+
+         # ----- 6. Save & version -----
+         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+         # Sanitize domain name for filename
+         safe_domain = re.sub(r'[^\w\-]+', '_', domain)
+         fname = out_dir / f"l1_{safe_domain}_{timestamp}.json"
+         try:
+             with open(fname, "w") as f:
+                 json.dump(final_labels, f, indent=2)
+             logging.info(f"💾 Saved final labels to: {fname}")
+         except IOError as e:
+             logging.error(f"Failed to save output file to {fname}: {e}")
+
+    logging.info("✨ Taxonomy generation process complete.")
+
+
+# ========== 3. Create Interactive Widgets ==========
+
+# --- Layouts ---
+style = {'description_width': 'initial'}
+label_layout = widgets.Layout(width='150px')
+widget_layout = widgets.Layout(width='400px')
+
+# --- Input Widgets ---
+domain_widget = widgets.Text(
+    value='artificial-intelligence',
+    placeholder='e.g., quantum-computing, crispr-gene-editing',
+    description='Domain:',
+    style=style, layout=widget_layout
+)
+
+tier_a_widget = widgets.Dropdown(
+    options=DEFAULT_TIER_A_OPTIONS,
+    value=DEFAULT_TIER_A_OPTIONS[0],
+    description='Tier-A Generator (PPLX):',
+    style=style, layout=widget_layout,
+    disabled=not PERPLEXITY_AVAILABLE
+)
+
+tier_b_widget = widgets.Dropdown(
+    options=DEFAULT_TIER_B_OPTIONS,
+    value=DEFAULT_TIER_B_OPTIONS[0] if OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY") else "None/Offline",
+    description='Tier-B Auditor (OpenAI):',
+    style=style, layout=widget_layout,
+    disabled=not OPENAI_AVAILABLE
+)
+
+max_labels_widget = widgets.IntSlider(
+    value=DEFAULT_MAX_LABELS, min=5, max=20, step=1,
+    description='Max Labels (Target):',
+    style=style, layout=widget_layout
+)
+
+min_labels_widget = widgets.IntSlider(
+    value=DEFAULT_MIN_LABELS, min=3, max=15, step=1,
+    description='Min Final Labels:',
+    style=style, layout=widget_layout
+)
+
+deny_list_widget = widgets.Textarea(
+    value=DEFAULT_DENY_LIST,
+    placeholder='Enter terms to reject, one per line',
+    description='Deny List (one per line):',
+    style=style, layout=widgets.Layout(width='400px', height='80px')
+)
+
+out_dir_widget = widgets.Text(
+    value=DEFAULT_OUT_DIR,
+    placeholder='Directory to save results',
+    description='Output Directory:',
+    style=style, layout=widget_layout
+)
+
+# --- Status & Button ---
+pplx_key_status = widgets.Label(
+    value="Perplexity Key Status: FOUND" if os.getenv("PERPLEXITY_API_KEY") else "Perplexity Key Status: NOT FOUND (Set PERPLEXITY_API_KEY env var)",
+    layout=widgets.Layout(width='auto')
+)
+if not PERPLEXITY_AVAILABLE:
+     pplx_key_status.value = "Perplexity library not installed. Tier-A disabled."
+     pplx_key_status.style.text_color = 'orange'
+     tier_a_widget.disabled = True # Also disable dropdown if lib missing
+elif not os.getenv("PERPLEXITY_API_KEY"):
+     pplx_key_status.style.text_color = 'red'
+     tier_a_widget.disabled = True # Also disable dropdown if key missing
+else:
+     pplx_key_status.style.text_color = 'green'
+
+
+openai_key_status = widgets.Label(
+    value="OpenAI Key Status: FOUND" if os.getenv("OPENAI_API_KEY") else "OpenAI Key Status: NOT FOUND (Set OPENAI_API_KEY env var)",
+    layout=widgets.Layout(width='auto')
+)
+if not OPENAI_AVAILABLE:
+     openai_key_status.value = "OpenAI library not installed. Tier-B disabled."
+     openai_key_status.style.text_color = 'orange'
+     tier_b_widget.disabled = True
+elif not os.getenv("OPENAI_API_KEY"):
+     openai_key_status.style.text_color = 'orange' # Warning, user might select None/Offline
+     # Allow user to select "None/Offline" even if key is missing
+else:
+     openai_key_status.style.text_color = 'green'
+
+
+run_button = widgets.Button(
+    description='Generate Taxonomy (API Only)',
+    button_style='success', # 'success', 'info', 'warning', 'danger' or ''
+    tooltip='Click to start the taxonomy generation process using APIs',
+    icon='cogs',
+    disabled=not PERPLEXITY_AVAILABLE or not os.getenv("PERPLEXITY_API_KEY") # Disable if Tier-A cannot run
+)
+
+# --- Output Area ---
+output_widget = widgets.Output(layout={'border': '1px solid black', 'padding': '10px', 'overflow_y': 'scroll', 'height': '400px'})
+
+# ========== 4. Define Button Click Handler ==========
+
+def on_run_button_clicked(b):
+    # 1. Disable button during run
+    run_button.disabled = True
+    run_button.description = 'Generating...'
+    run_button.icon = 'spinner'
+
+    # 2. Clear previous output
+    output_widget.clear_output()
+
+    # 3. Redirect print/logging to the output widget
+    with output_widget:
+        logging.getLogger().setLevel(logging.INFO) # Ensure logging level
+        print("Starting taxonomy generation using APIs...\n---")
+
+        # 4. Get current values from widgets
+        domain = domain_widget.value
+        tier_a_model = tier_a_widget.value
+        tier_b_model = tier_b_widget.value
+        max_labels = max_labels_widget.value
+        min_labels = min_labels_widget.value
+        deny_list_text = deny_list_widget.value
+        out_dir_str = out_dir_widget.value
+
+        # 5. Prepare arguments
+        deny_list = {item.strip() for item in deny_list_text.split('\n') if item.strip()}
+        out_dir = Path(out_dir_str)
+        perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+
+        # 6. Validate Min/Max Labels
+        if min_labels > max_labels:
+             logging.error(f"Configuration Error: Min Final Labels ({min_labels}) cannot be greater than Max Labels ({max_labels}). Adjust sliders.")
+             # Re-enable button early on config error
+             run_button.disabled = False
+             run_button.description = 'Generate Taxonomy (API Only)'
+             run_button.icon = 'cogs'
+             return
+
+        # 7. Run the main logic
+        try:
+            generate_taxonomy(
+                domain, tier_a_model, tier_b_model,
+                max_labels, min_labels, deny_list, out_dir,
+                perplexity_api_key, openai_api_key
+            )
+        except Exception as e:
+            logging.error(f"An unexpected critical error occurred: {e}", exc_info=True)
+        finally:
+            print("\n---\nGeneration process finished.")
+            # Re-enable button
+            run_button.disabled = False
+            run_button.description = 'Generate Taxonomy (API Only)'
+            run_button.icon = 'cogs'
+
+
+# ========== 5. Display Widgets ==========
+
+# --- Arrange Widgets ---
+config_box = widgets.VBox([
+    widgets.HBox([widgets.Label("Domain Configuration", layout=widgets.Layout(width='auto'))]),
+    widgets.HBox([widgets.Label("Domain:", layout=label_layout), domain_widget]),
+
+    widgets.HTML("<hr><b>Tier-A (Generator - Perplexity)</b>"), # Section Header
+    widgets.HBox([widgets.Label("PPLX Model:", layout=label_layout), tier_a_widget]),
+    widgets.HBox([widgets.Label("", layout=label_layout), pplx_key_status]),
+
+    widgets.HTML("<hr><b>Tier-B (Auditor - OpenAI)</b>"), # Section Header
+    widgets.HBox([widgets.Label("OpenAI Model:", layout=label_layout), tier_b_widget]),
+    widgets.HBox([widgets.Label("", layout=label_layout), openai_key_status]),
+
+    widgets.HTML("<hr><b>Taxonomy Rules</b>"), # Section Header
+    widgets.HBox([widgets.Label("Max (Target):", layout=label_layout), max_labels_widget]),
+    widgets.HBox([widgets.Label("Min (Required):", layout=label_layout), min_labels_widget]),
+    widgets.HBox([widgets.Label("Deny List:", layout=label_layout), deny_list_widget]),
+    widgets.HBox([widgets.Label("Output Dir:", layout=label_layout), out_dir_widget]),
+])
+
+control_box = widgets.VBox([
+    run_button,
+    output_widget
+])
+
+# --- Display UI ---
+display(widgets.VBox([config_box, control_box]))
+
+# --- Link Button Action ---
+run_button.on_click(on_run_button_clicked)
+
+# --- Initial Check ---
+# Check if Tier-A can run and update button state immediately
+if not PERPLEXITY_AVAILABLE or not os.getenv("PERPLEXITY_API_KEY"):
+    with output_widget:
+        logging.warning("Tier-A cannot run. Check Perplexity library installation and PERPLEXITY_API_KEY environment variable.")
