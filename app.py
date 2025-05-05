@@ -239,6 +239,20 @@ Return only the JSON object now.
         else:
             st.warning("No Tier-B refinement performed. Using Tier-A candidates as final.")
             approved = candidates
+            
+            # If this is because we used an o-series model, add additional guidance
+            o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
+            if tier_b_model in o_series_models:
+                st.warning("""
+                ⚠️ **O-series Model Note:** 
+                
+                The Tier-B refinement with an o-series model failed to return usable content.
+                This is a common limitation of these models with some account permissions.
+                
+                **Recommendations:**
+                - Try using standard GPT models like `gpt-4o` or `gpt-3.5-turbo` instead
+                - Check the "Model Info" tab for details about model capabilities and limitations
+                """)
     else:
         st.info("Tier-B refinement skipped (None/Offline selected). Using Tier-A candidates as final.")
         approved = candidates

@@ -112,6 +112,17 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             
             # If we reached here, we couldn't get a valid response
             st.error("Tier-A (OpenAI) API returned an empty response.")
+            
+            if is_o_series:
+                st.warning("""
+                ⚠️ **O-series Model Failed**
+                
+                The o-series model attempted did not return usable content. This is a common limitation of these models
+                with certain account permissions. For more reliable results, please try:
+                
+                1. Use standard GPT models like `gpt-4o` or `gpt-3.5-turbo` instead
+                2. Check the "Model Info" tab for detailed information about model capabilities
+                """)
             return None
                 
         except OpenAI_RateLimitError as e:
@@ -292,6 +303,17 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             
             # If we reached here, we couldn't get a valid response
             st.error("Tier-B (OpenAI) API returned an empty response.")
+            
+            if is_o_series:
+                st.warning("""
+                ⚠️ **O-series Model Failed**
+                
+                The o-series model attempted did not return usable content. This is a common limitation of these models
+                with certain account permissions. For more reliable results, please try:
+                
+                1. Use standard GPT models like `gpt-4o` or `gpt-3.5-turbo` instead
+                2. Check the "Model Info" tab for detailed information about model capabilities
+                """)
             return None
                 
         except OpenAI_RateLimitError as e:
