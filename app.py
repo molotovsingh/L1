@@ -344,6 +344,7 @@ Return only the JSON object now.
     taxonomy_data = {
         "domain": domain,
         "timestamp": timestamp,
+        "api_provider": api_provider,
         "approved_labels": approved,
         "rejected_labels": rejected if rejected else [],
         "rejection_reasons": rejected_info if rejected_info else {},
@@ -372,7 +373,8 @@ Return only the JSON object now.
         deny_list=deny_list,
         approved_labels=approved,
         rejected_labels=rejected if rejected else [],
-        rejection_reasons=rejected_info if rejected_info else {}
+        rejection_reasons=rejected_info if rejected_info else {},
+        api_provider=api_provider
     )
     
     if taxonomy_id:
@@ -658,6 +660,11 @@ def main():
                     # Display the selected taxonomy details
                     st.subheader(f"Taxonomy for '{selected_taxonomy['domain']}'")
                     st.markdown(f"**Generated on:** {selected_taxonomy['timestamp']}")
+                    
+                    # Display API provider if available (for backward compatibility with older taxonomies)
+                    if 'api_provider' in selected_taxonomy:
+                        st.markdown(f"**API Provider:** {selected_taxonomy['api_provider']}")
+                    
                     st.markdown(f"**Tier-A Model:** {selected_taxonomy['tier_a_model']}")
                     st.markdown(f"**Tier-B Model:** {selected_taxonomy['tier_b_model']}")
                     

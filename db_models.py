@@ -124,6 +124,7 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
         taxonomy_data = {
             "domain": domain,
             "timestamp": timestamp,
+            "api_provider": api_provider,
             "tier_a_model": tier_a_model,
             "tier_b_model": tier_b_model,
             "max_labels": max_labels,
@@ -144,6 +145,7 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
         # Create taxonomy
         taxonomy = Taxonomy(
             domain=domain,
+            api_provider=api_provider,
             tier_a_model=tier_a_model,
             tier_b_model=tier_b_model,
             max_labels=max_labels,
