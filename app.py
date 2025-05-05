@@ -27,6 +27,10 @@ except ImportError:
     OpenAI = None
     OPENAI_AVAILABLE = False
 
+# Global settings for API retry logic
+MAX_RETRIES = 4
+RETRY_DELAYS = [5, 15, 30, 60]  # Increased exponential backoff in seconds (up to 1 minute)
+
 # ----- Configuration (Defaults) -----
 # OpenAI models for both tiers
 # The newest OpenAI model is "gpt-4o" which was released May 13, 2024
@@ -90,7 +94,15 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                     time.sleep(delay)
             else:
                 st.error("Tier-A API Error (OpenAI): Rate limit exceeded after maximum retries.")
-                st.info("This happens when too many requests are made to the OpenAI API in a short period. Please try again later or adjust your usage pattern.")
+                st.warning("⚠️ **OpenAI API Rate Limit Reached**")
+                st.info("""
+                This happens when too many requests are made to the OpenAI API in a short period.
+                
+                **Recommended solutions:**
+                1. Wait 1-2 minutes before trying again
+                2. Try using a different model (gpt-3.5-turbo has higher rate limits)
+                3. If the problem persists, you may need to wait up to an hour for quota reset
+                """)
                 return None
                 
         except OpenAI_AuthError:
@@ -171,7 +183,15 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                     time.sleep(delay)
             else:
                 st.error("Tier-B API Error (OpenAI): Rate limit exceeded after maximum retries.")
-                st.info("This happens when too many requests are made to the OpenAI API in a short period. Please try again later or adjust your usage pattern.")
+                st.warning("⚠️ **OpenAI API Rate Limit Reached**")
+                st.info("""
+                This happens when too many requests are made to the OpenAI API in a short period.
+                
+                **Recommended solutions:**
+                1. Wait 1-2 minutes before trying again
+                2. Try using a different model (gpt-3.5-turbo has higher rate limits)
+                3. If the problem persists, you may need to wait up to an hour for quota reset
+                """)
                 return None
                 
         except OpenAI_AuthError:
