@@ -1,0 +1,31 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250505_062728",
+  "tier_a_model": "chatgpt-4o-latest",
+  "tier_b_model": "o3",
+  "max_labels": 9,
+  "min_labels": 8,
+  "deny_list": [
+    "Funding",
+    "Partnership",
+    "Hiring"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "Ransomware-Attack",
+    "Zero-Day-Discovery",
+    "Patch-Release",
+    "Vulnerability-Disclosure",
+    "Malware-Outbreak",
+    "Phishing-Campaign-Detected",
+    "DDoS-Attack",
+    "Security-Protocol-Update",
+    "Credential-Leak",
+    "Regulatory-Enforcement-Action",
+    "Cybersecurity-Standard-Release",
+    "Exploit-Kit-Deployment",
+    "Nation-State-Cyberattack",
+    "Incident-Response-Initiated"
+  ],
+  "rejected_labels": {}
+}

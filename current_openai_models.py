@@ -37,19 +37,24 @@ def check_model(model_name):
     """Try a simple request to check if the model is available"""
     try:
         # For o-series models, use max_completion_tokens instead of max_tokens
+        # Also o-series models don't support custom temperature values
         o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
         
         if model_name in o_series_models:
+            # Only use parameters supported by o-series models
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": "Hello"}],
                 max_completion_tokens=5
+                # No temperature parameter (only default 1.0 is supported)
             )
         else:
+            # Use standard parameters for other models
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=5
+                max_tokens=5,
+                temperature=0.0
             )
         return True, None
     except Exception as e:

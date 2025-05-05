@@ -46,9 +46,15 @@ def get_model_params(model_name, base_params=None):
     
     params = base_params.copy()
     
-    # For o-series models, use max_completion_tokens instead of max_tokens
-    if requires_special_params(model_name):
+    # Handle o-series model requirements
+    o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
+    if model_name in o_series_models:
+        # 1. Use max_completion_tokens instead of max_tokens
         if "max_tokens" in params:
             params["max_completion_tokens"] = params.pop("max_tokens")
+            
+        # 2. Remove temperature parameter - o-series only support default temp (1.0)
+        if "temperature" in params:
+            params.pop("temperature")
     
     return params
