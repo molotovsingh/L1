@@ -37,12 +37,15 @@ RETRY_DELAYS = [5, 15, 30, 60]  # Increased exponential backoff in seconds (up t
 DEFAULT_TIER_A_OPTIONS: List[str] = [
     "gpt-4o",  # Powerful, reliable model
     "gpt-3.5-turbo",  # Faster, more economical
-    "custom"  # Allow user to specify a custom model
+    "o3",      # Shorthand for gpt-4o
+    "custom"   # Allow user to specify a custom model
 ]
 
 DEFAULT_TIER_B_OPTIONS: List[str] = [
     "gpt-4o",  # Powerful, reliable model
     "gpt-3.5-turbo",  # Faster, more economical
+    "o3",      # Shorthand for gpt-4o
+    "o1",      # Shorthand for gpt-4 (older model)
     "custom",  # Allow user to specify a custom model
     "None/Offline"  # Skip Tier-B processing
 ]
@@ -63,6 +66,10 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
     if not api_key:
         st.error("OPENAI_API_KEY required for Tier-A call but not found/set.")
         return None
+        
+    # Handle shorthand model names
+    if model_name == "o3":
+        model_name = "gpt-4o"  # Map o3 to gpt-4o
 
     # Retry parameters
     max_retries = 3
@@ -167,6 +174,10 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
     if not api_key:
         st.error("OPENAI_API_KEY required for Tier-B call but not found/set.")
         return None
+        
+    # Handle shorthand model names
+    if model_name == "o3":
+        model_name = "gpt-4o"  # Map o3 to gpt-4o
 
     # Retry parameters
     max_retries = 3

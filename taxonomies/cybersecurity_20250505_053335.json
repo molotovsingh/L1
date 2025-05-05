@@ -1,0 +1,32 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250505_053335",
+  "tier_a_model": "gpt-4o",
+  "tier_b_model": "gpt-4o",
+  "max_labels": 9,
+  "min_labels": 8,
+  "deny_list": [
+    "Hiring",
+    "Partnership",
+    "Funding"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "Ransomware-Attack",
+    "Zero-Day-Exploit",
+    "Phishing-Campaign",
+    "Security-Patch-Release",
+    "Vulnerability-Disclosure",
+    "DDoS-Attack",
+    "Incident-Response-Initiation",
+    "Threat-Intelligence-Report"
+  ],
+  "rejected_labels": {
+    "Regulatory-Action": "Too broad, not specific to a single event.",
+    "Cybersecurity-Law-Enactment": "Merged into Regulatory-Action.",
+    "Encryption-Protocol-Update": "Not event-driven, describes a technology update.",
+    "Malware-Detection": "Not event-driven, describes a capability.",
+    "Security-Tool-Launch": "Not significant enough compared to other events.",
+    "Cybersecurity-Audit-Failure": "Not event-driven, describes an ongoing state."
+  }
+}
