@@ -69,7 +69,8 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
         st.error("Tier-A API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
         return None
     except OpenAI_RateLimitError:
-        st.error("Tier-A API Error (OpenAI): Rate limit exceeded.")
+        st.error("Tier-A API Error (OpenAI): Rate limit exceeded. Please wait a minute before trying again.")
+        st.info("This happens when too many requests are made to the OpenAI API in a short period. The free tier has limits on request frequency.")
         return None
     except OpenAI_ConnError:
         st.error("Tier-A API Error (OpenAI): Could not connect to OpenAI API.")
@@ -114,7 +115,8 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
         st.error("Tier-B API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
         return None
     except OpenAI_RateLimitError:
-        st.error("Tier-B API Error (OpenAI): Rate limit exceeded.")
+        st.error("Tier-B API Error (OpenAI): Rate limit exceeded. Please wait a minute before trying again.")
+        st.info("This happens when too many requests are made to the OpenAI API in a short period. The free tier has limits on request frequency.")
         return None
     except OpenAI_ConnError:
         st.error("Tier-B API Error (OpenAI): Could not connect to OpenAI API.")
