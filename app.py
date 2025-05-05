@@ -39,22 +39,22 @@ RETRY_DELAYS = [5, 15, 30, 60]  # Increased exponential backoff in seconds (up t
 # OpenAI models for both tiers
 # The newest OpenAI model is "gpt-4o" which was released May 13, 2024
 DEFAULT_TIER_A_OPTIONS: List[str] = [
-    "chatgpt-4o-latest",  # Powerful, reliable model (OpenAI's latest model)
+    "gpt-4o",             # Powerful, reliable model (OpenAI's latest model)
     "gpt-4",              # Reliable model
     "gpt-3.5-turbo",      # Faster, more economical
-    "o3",                 # Shorthand for chatgpt-4o-latest
-    "o1",                 # Shorthand for gpt-4
-    "custom"              # Allow user to specify a custom model
+    "custom",             # Allow user to specify a custom model
+    "o3",                 # (NOT RECOMMENDED - may return empty responses)
+    "o1"                  # (NOT RECOMMENDED - may return empty responses)
 ]
 
 DEFAULT_TIER_B_OPTIONS: List[str] = [
-    "chatgpt-4o-latest",  # Powerful, reliable model (OpenAI's latest model)
+    "gpt-4o",             # Powerful, reliable model (OpenAI's latest model)
     "gpt-4",              # Reliable model
     "gpt-3.5-turbo",      # Faster, more economical
-    "o3",                 # Shorthand for chatgpt-4o-latest
-    "o1",                 # Shorthand for gpt-4 (older model)
     "custom",             # Allow user to specify a custom model
-    "None/Offline"        # Skip Tier-B processing
+    "None/Offline",       # Skip Tier-B processing
+    "o3",                 # (NOT RECOMMENDED - may return empty responses)
+    "o1"                  # (NOT RECOMMENDED - may return empty responses)
 ]
 DEFAULT_MAX_LABELS: int = 9
 DEFAULT_MIN_LABELS: int = 8
@@ -166,6 +166,24 @@ Generate the JSON array now.
 
     if not candidates:
         st.error("Tier-A generation resulted in zero valid candidates.")
+        
+        # If this is because we used an o-series model, add additional guidance
+        o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
+        if tier_a_model in o_series_models:
+            st.error("""
+            ❌ **O-series Model Not Supported**
+            
+            The taxonomy generation failed because the o-series model returned an empty response.
+            This is a common issue with o-series models in certain accounts.
+            
+            **Solution:**
+            1. Go back and select a standard GPT model like `gpt-4o` or `gpt-3.5-turbo`
+            2. Click 'Generate Taxonomy' again
+            
+            The o-series models require special access permissions to return content, and in many cases,
+            they will return empty responses even though the API call succeeds with status 200 OK.
+            """)
+            
         return None, None, None
 
     # Display the candidates

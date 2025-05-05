@@ -63,21 +63,22 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             
             # Debug response for o-series models
             if is_o_series:
-                st.info(f"Debug - o-series API response details:")
-                st.info(f"- Model: {model_name}")
-                st.info(f"- Response object type: {type(response)}")
-                st.info(f"- Choices available: {len(response.choices)}")
-                
-                if len(response.choices) > 0:
-                    msg = response.choices[0].message
-                    st.info(f"- Message role: {msg.role}")
-                    st.info(f"- Content length: {len(msg.content) if msg.content else 0}")
-                    if not msg.content:
-                        st.info("- Content is empty or None")
-                    elif len(msg.content) < 100:
-                        st.info(f"- Content preview: {msg.content}")
-                    else:
-                        st.info(f"- Content preview: {msg.content[:100]}...")
+                # Create an expandable section for the debug info
+                with st.expander("Debug - o-series API response details:"):
+                    st.info(f"Model: {model_name}")
+                    st.info(f"Response object type: {type(response)}")
+                    st.info(f"Choices available: {len(response.choices)}")
+                    
+                    if len(response.choices) > 0:
+                        msg = response.choices[0].message
+                        st.info(f"Message role: {msg.role}")
+                        st.info(f"Content length: {len(msg.content) if msg.content else 0}")
+                        if not msg.content:
+                            st.error("Content is empty or None")
+                        elif len(msg.content) < 100:
+                            st.code(f"{msg.content}")
+                        else:
+                            st.code(f"{msg.content[:100]}...")
             
             # Process response normally
             if len(response.choices) > 0:
@@ -251,21 +252,22 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             
             # Debug response for o-series models
             if is_o_series:
-                st.info(f"Debug - o-series API response details (Tier-B):")
-                st.info(f"- Model: {model_name}")
-                st.info(f"- Response object type: {type(response)}")
-                st.info(f"- Choices available: {len(response.choices)}")
-                
-                if len(response.choices) > 0:
-                    msg = response.choices[0].message
-                    st.info(f"- Message role: {msg.role}")
-                    st.info(f"- Content length: {len(msg.content) if msg.content else 0}")
-                    if not msg.content:
-                        st.info("- Content is empty or None")
-                    elif len(msg.content) < 100:
-                        st.info(f"- Content preview: {msg.content}")
-                    else:
-                        st.info(f"- Content preview: {msg.content[:100]}...")
+                # Create an expandable section for the debug info
+                with st.expander("Debug - o-series API response details (Tier-B):"):
+                    st.info(f"Model: {model_name}")
+                    st.info(f"Response object type: {type(response)}")
+                    st.info(f"Choices available: {len(response.choices)}")
+                    
+                    if len(response.choices) > 0:
+                        msg = response.choices[0].message
+                        st.info(f"Message role: {msg.role}")
+                        st.info(f"Content length: {len(msg.content) if msg.content else 0}")
+                        if not msg.content:
+                            st.error("Content is empty or None")
+                        elif len(msg.content) < 100:
+                            st.code(f"{msg.content}")
+                        else:
+                            st.code(f"{msg.content[:100]}...")
             
             # Process response normally
             if len(response.choices) > 0:
