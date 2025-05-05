@@ -18,9 +18,6 @@ import streamlit as st
 # Database models
 import db_models
 
-# Custom utilities
-import model_mapper
-
 # API clients
 try:
     from openai import OpenAI, APIError as OpenAI_APIError, AuthenticationError as OpenAI_AuthError
