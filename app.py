@@ -140,8 +140,9 @@ def generate_taxonomy(domain: str, tier_a_model: str, tier_b_model: str, max_lab
     st.info(f"Processing domain: {domain}")
     out_dir.mkdir(exist_ok=True)
 
-    # ----- Tier‑A candidate generation (OpenAI API) -----
-    prompt_A = f"""
+    # ----- Tier‑A candidate generation -----
+    if api_provider == "OpenAI":
+        prompt_A = f"""
 You are a domain taxonomy generator specializing in discrete events.
 
 Domain: {domain}
@@ -159,10 +160,19 @@ Rules for Labels:
 Generate the JSON array now.
 """
 
-    st.info("🔹 Generating Tier‑A candidates via OpenAI API...")
-    with st.spinner("Waiting for OpenAI API response for generation..."):
-        candidates: List[str] = []
-        resp_A = call_apis.call_tier_a_api(prompt_A, openai_api_key, tier_a_model)
+        st.info(f"🔹 Generating Tier‑A candidates via {api_provider} API...")
+        with st.spinner(f"Waiting for {api_provider} API response for generation..."):
+            candidates: List[str] = []
+            resp_A = call_apis.call_tier_a_api(prompt_A, openai_api_key, tier_a_model)
+            
+    else:  # Perplexity
+        # Create prompt for Perplexity
+        prompt_A = call_perplexity_api.create_taxonomy_prompt(domain, max_labels, min_labels, deny_list)
+        
+        st.info(f"🔹 Generating Tier‑A candidates via {api_provider} API...")
+        with st.spinner(f"Waiting for {api_provider} API response for generation..."):
+            candidates: List[str] = []
+            resp_A = call_perplexity_api.call_perplexity_api_tier_a(prompt_A, perplexity_api_key, tier_a_model)
 
     if resp_A:
         # Display raw response in expander
@@ -233,14 +243,15 @@ Generate the JSON array now.
     st.subheader("Tier-A Candidates")
     st.write(candidates)
 
-    # ----- Tier‑B audit & refinement (OpenAI API) -----
+    # ----- Tier‑B audit & refinement -----
     approved: List[str] = []
     rejected: List[str] = []
     rejected_info: Dict[str, str] = {}
     tier_b_selected_model = tier_b_model
 
     if tier_b_selected_model.lower() != "none/offline":
-        prompt_B = f"""
+        if api_provider == "OpenAI":
+            prompt_B = f"""
 You are a meticulous taxonomy auditor enforcing specific principles.
 
 Candidate Event Labels for Domain '{domain}':
@@ -272,8 +283,15 @@ Example Output Format:
 
 Return only the JSON object now.
 """
-        with st.spinner("Waiting for OpenAI API response for refinement..."):
-            audit_response_str = call_apis.call_openai_api(prompt_B, openai_api_key, tier_b_selected_model)
+            with st.spinner(f"Waiting for {api_provider} API response for refinement..."):
+                audit_response_str = call_apis.call_openai_api(prompt_B, openai_api_key, tier_b_selected_model)
+                
+        else:  # Perplexity
+            # Create prompt for Perplexity
+            prompt_B = call_perplexity_api.create_taxonomy_audit_prompt(domain, candidates, max_labels, min_labels, deny_list)
+            
+            with st.spinner(f"Waiting for {api_provider} API response for refinement..."):
+                audit_response_str = call_perplexity_api.call_perplexity_api_tier_b(prompt_B, perplexity_api_key, tier_b_selected_model)
 
         if audit_response_str:
             # Display raw response in expander
@@ -376,19 +394,31 @@ def main():
 
     st.title("🔍 Interactive Domain Taxonomy Discovery")
     st.markdown("""
-    This app helps you generate taxonomies for any domain using a two-tier approach:
-    - **Tier-A** (OpenAI API): Generates candidate labels
-    - **Tier-B** (OpenAI API): Refines and validates the taxonomy
+    This app helps you generate taxonomies for any domain using a two-tier approach with multiple API providers:
+    - **Tier-A**: Generates candidate labels (OpenAI or Perplexity API)
+    - **Tier-B**: Refines and validates the taxonomy (OpenAI or Perplexity API)
     
     Use the tabs below to generate a new taxonomy or view previously generated ones.
     """)
     
     # API Key warnings/status (outside tabs)
     openai_api_key = os.environ.get("OPENAI_API_KEY")
-    if openai_api_key:
-        st.success("✅ OPENAI_API_KEY found in environment variables")
-    else:
-        st.error("❌ OPENAI_API_KEY not found. Set it in your environment variables.")
+    perplexity_api_key = os.environ.get("PERPLEXITY_API_KEY")
+    
+    # API key status
+    col1_api, col2_api = st.columns(2)
+    
+    with col1_api:
+        if openai_api_key:
+            st.success("✅ OPENAI_API_KEY found in environment variables")
+        else:
+            st.error("❌ OPENAI_API_KEY not found. Set it in your environment variables.")
+            
+    with col2_api:
+        if perplexity_api_key:
+            st.success("✅ PERPLEXITY_API_KEY found in environment variables")
+        else:
+            st.warning("⚠️ PERPLEXITY_API_KEY not found. Only OpenAI API will be available.")
     
     # Create tabs for different sections
     tab1, tab2, tab3 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies", "Model Info"])
@@ -401,28 +431,60 @@ def main():
         with st.form("taxonomy_config_form"):
             domain = st.text_input("Domain", help="Enter the domain for which you want to generate a taxonomy (e.g., 'Artificial Intelligence', 'Healthcare Tech')")
             
+            # API provider selection
+            api_provider = st.selectbox(
+                "API Provider",
+                options=API_PROVIDERS,
+                index=0,
+                help="Select which API provider to use for generating the taxonomy"
+            )
+            
+            # Display warning if Perplexity is selected but no API key is available
+            if api_provider == "Perplexity" and not perplexity_api_key:
+                st.warning("⚠️ No Perplexity API key found. Please add a PERPLEXITY_API_KEY to your environment variables.")
+            
             # Advanced settings expander
             with st.expander("Advanced Settings"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    tier_a_model_option = st.selectbox(
-                        "Tier-A Model (OpenAI)", 
-                        options=DEFAULT_TIER_A_OPTIONS,
-                        index=0,
-                        help="Select the OpenAI model for candidate generation. Note: o-series models (o1, o3) may return empty responses depending on account permissions. GPT-4o or GPT-3.5-turbo are recommended."
-                    )
-                    
-                    # If custom is selected, show an input field for custom model name
-                    if tier_a_model_option == "custom":
-                        tier_a_custom_model = st.text_input(
-                            "Custom Tier-A Model Name",
-                            value="gpt-4o-mini",
-                            help="Enter a valid OpenAI model name (e.g., gpt-4o-mini, gpt-4-turbo, etc.)"
+                    # Conditionally display model options based on selected provider
+                    if api_provider == "OpenAI":
+                        tier_a_model_option = st.selectbox(
+                            "Tier-A Model (OpenAI)", 
+                            options=DEFAULT_OPENAI_TIER_A_OPTIONS,
+                            index=0,
+                            help="Select the OpenAI model for candidate generation. Note: o-series models (o1, o3) may return empty responses depending on account permissions. GPT-4o or GPT-3.5-turbo are recommended."
                         )
-                        tier_a_model = tier_a_custom_model
-                    else:
-                        tier_a_model = tier_a_model_option
+                        
+                        # If custom is selected, show an input field for custom model name
+                        if tier_a_model_option == "custom":
+                            tier_a_custom_model = st.text_input(
+                                "Custom Tier-A Model Name",
+                                value="gpt-4o-mini",
+                                help="Enter a valid OpenAI model name (e.g., gpt-4o-mini, gpt-4-turbo, etc.)"
+                            )
+                            tier_a_model = tier_a_custom_model
+                        else:
+                            tier_a_model = tier_a_model_option
+                    else:  # Perplexity
+                        tier_a_model_option = st.selectbox(
+                            "Tier-A Model (Perplexity)", 
+                            options=DEFAULT_PERPLEXITY_TIER_A_OPTIONS,
+                            index=0,
+                            help="Select the Perplexity model for candidate generation. Perplexity models generally provide more reliable results with reasoning capabilities."
+                        )
+                        
+                        # If custom is selected, show an input field for custom model name
+                        if tier_a_model_option == "custom":
+                            tier_a_custom_model = st.text_input(
+                                "Custom Tier-A Model Name",
+                                value="sonar-medium-online",
+                                help="Enter a valid Perplexity model name (e.g., sonar-medium-online, codestral-2305)"
+                            )
+                            tier_a_model = tier_a_custom_model
+                        else:
+                            tier_a_model = tier_a_model_option
                     
                     max_labels = st.number_input(
                         "Max Labels", 
@@ -440,23 +502,43 @@ def main():
                     )
                 
                 with col2:
-                    tier_b_model_option = st.selectbox(
-                        "Tier-B Model (OpenAI)", 
-                        options=DEFAULT_TIER_B_OPTIONS,
-                        index=0,
-                        help="Select the OpenAI model for refinement (or None/Offline to skip). Note: o-series models (o1, o3) may return empty responses depending on account permissions. GPT-4o or GPT-3.5-turbo are recommended."
-                    )
-                    
-                    # If custom is selected, show an input field for custom model name
-                    if tier_b_model_option == "custom":
-                        tier_b_custom_model = st.text_input(
-                            "Custom Tier-B Model Name",
-                            value="gpt-4o-mini",
-                            help="Enter a valid OpenAI model name (e.g., gpt-4o-mini, gpt-4-turbo, etc.)"
+                    # Conditionally display model options based on selected provider
+                    if api_provider == "OpenAI":
+                        tier_b_model_option = st.selectbox(
+                            "Tier-B Model (OpenAI)", 
+                            options=DEFAULT_OPENAI_TIER_B_OPTIONS,
+                            index=0,
+                            help="Select the OpenAI model for refinement (or None/Offline to skip). Note: o-series models (o1, o3) may return empty responses depending on account permissions. GPT-4o or GPT-3.5-turbo are recommended."
                         )
-                        tier_b_model = tier_b_custom_model
-                    else:
-                        tier_b_model = tier_b_model_option
+                        
+                        # If custom is selected, show an input field for custom model name
+                        if tier_b_model_option == "custom":
+                            tier_b_custom_model = st.text_input(
+                                "Custom Tier-B Model Name",
+                                value="gpt-4o-mini",
+                                help="Enter a valid OpenAI model name (e.g., gpt-4o-mini, gpt-4-turbo, etc.)"
+                            )
+                            tier_b_model = tier_b_custom_model
+                        else:
+                            tier_b_model = tier_b_model_option
+                    else:  # Perplexity
+                        tier_b_model_option = st.selectbox(
+                            "Tier-B Model (Perplexity)", 
+                            options=DEFAULT_PERPLEXITY_TIER_B_OPTIONS,
+                            index=0,
+                            help="Select the Perplexity model for refinement (or None/Offline to skip). Perplexity models generally provide more reliable results with reasoning capabilities."
+                        )
+                        
+                        # If custom is selected, show an input field for custom model name
+                        if tier_b_model_option == "custom":
+                            tier_b_custom_model = st.text_input(
+                                "Custom Tier-B Model Name",
+                                value="sonar-medium-online",
+                                help="Enter a valid Perplexity model name (e.g., sonar-medium-online, codestral-2305)"
+                            )
+                            tier_b_model = tier_b_custom_model
+                        else:
+                            tier_b_model = tier_b_model_option
                     
                     min_labels = st.number_input(
                         "Min Labels", 
@@ -490,7 +572,7 @@ def main():
             status_container = st.empty()
             
             with status_container.container():
-                # Generate taxonomy
+                # Generate taxonomy based on selected API provider
                 approved, rejected, rejection_reasons = generate_taxonomy(
                     domain=domain,
                     tier_a_model=tier_a_model,
@@ -499,7 +581,9 @@ def main():
                     min_labels=min_labels,
                     deny_list=deny_list,
                     out_dir=out_dir,
-                    openai_api_key=openai_api_key
+                    api_provider=api_provider,
+                    openai_api_key=openai_api_key,
+                    perplexity_api_key=perplexity_api_key
                 )
                 
                 if approved:
@@ -618,24 +702,62 @@ def main():
             st.error(f"Error accessing taxonomy database: {e}")
     
     with tab3:
-        st.header("OpenAI Model Information")
-        st.markdown("This page provides information about different OpenAI models and recommendations for taxonomy generation.")
+        st.header("Model Information")
+        st.markdown("This page provides information about different AI models and recommendations for taxonomy generation.")
         
-        try:
-            with open("model_info.md", "r") as f:
-                model_info = f.read()
-                st.markdown(model_info)
-        except FileNotFoundError:
-            st.info("Model information file not found.")
-            # Provide basic information if file is missing
+        model_tabs = st.tabs(["OpenAI Models", "Perplexity Models"])
+        
+        with model_tabs[0]:
+            # OpenAI Models
+            try:
+                with open("model_info.md", "r") as f:
+                    model_info = f.read()
+                    st.markdown(model_info)
+            except FileNotFoundError:
+                st.info("OpenAI model information file not found.")
+                # Provide basic information if file is missing
+                st.markdown("""
+                ## Recommended OpenAI Models
+                
+                - **For general use**: gpt-4o or gpt-3.5-turbo
+                - **For advanced reasoning**: o1 or o3 (if you have access)
+                
+                Note that o-series models (o1, o3) may return empty responses depending on your account permissions.
+                """)
+        
+        with model_tabs[1]:
+            # Perplexity Models
             st.markdown("""
-            ## Recommended Models
+            ## Perplexity AI Models
             
-            - **For general use**: gpt-4o or gpt-3.5-turbo
-            - **For advanced reasoning**: o1 or o3 (if you have access)
+            Perplexity offers several models with different capabilities and performance characteristics:
             
-            Note that o-series models (o1, o3) may return empty responses depending on your account permissions.
+            ### sonar-small-online
+            - Fastest response time
+            - Good for simple tasks and quick generation
+            - Lower reasoning capabilities than larger models
+            
+            ### sonar-medium-online
+            - Balanced performance and speed
+            - Good reasoning capabilities
+            - Recommended for most taxonomy generation tasks
+            
+            ### sonar-large-online
+            - Most powerful model with advanced reasoning
+            - Slower response time
+            - Best for complex domains requiring deep understanding
+            
+            ### sonar-reasoning
+            - Optimized for structured reasoning tasks
+            - Good choice for taxonomy refinement/validation
+            - Similar to medium model but with enhanced reasoning capabilities
+            
+            ### Notes on Perplexity models:
+            - All models support online search, indicated by the "-online" suffix
+            - Perplexity models generally produce more reliable results than o-series models in accounts without special permissions
+            - Response format is standardized across all models
             """)
+        
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ class Taxonomy(Base):
     id = Column(Integer, primary_key=True)
     domain = Column(String(255), nullable=False)
     timestamp = Column(DateTime, default=datetime.now)
+    api_provider = Column(String(50), default="OpenAI")  # OpenAI or Perplexity
     tier_a_model = Column(String(50))
     tier_b_model = Column(String(50))
     max_labels = Column(Integer)
@@ -50,6 +51,7 @@ class Taxonomy(Base):
             "id": self.id,
             "domain": self.domain,
             "timestamp": self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "api_provider": self.api_provider,
             "tier_a_model": self.tier_a_model,
             "tier_b_model": self.tier_b_model,
             "max_labels": self.max_labels,
@@ -95,7 +97,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, deny_list, 
-                   approved_labels, rejected_labels, rejection_reasons):
+                   approved_labels, rejected_labels, rejection_reasons, api_provider="OpenAI"):
     """
     Create a new taxonomy in the database.
     
@@ -109,6 +111,7 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
         approved_labels (list): List of approved labels
         rejected_labels (list): List of rejected labels
         rejection_reasons (dict): Mapping of rejected labels to reasons
+        api_provider (str): The API provider used ("OpenAI" or "Perplexity")
         
     Returns:
         int: The ID of the created taxonomy or None if there was an error
