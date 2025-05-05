@@ -316,7 +316,7 @@ def main():
         st.error("❌ OPENAI_API_KEY not found. Set it in your environment variables.")
     
     # Create tabs for different sections
-    tab1, tab2 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies"])
+    tab1, tab2, tab3 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies", "Model Info"])
     
     with tab1:
         st.header("Generate New Taxonomy")
@@ -541,7 +541,27 @@ def main():
                                 st.error("Failed to delete taxonomy.")
         except Exception as e:
             st.error(f"Error accessing taxonomy database: {e}")
+    
+    with tab3:
+        st.header("OpenAI Model Information")
+        st.markdown("This page provides information about different OpenAI models and recommendations for taxonomy generation.")
+        
+        try:
+            with open("model_info.md", "r") as f:
+                model_info = f.read()
+                st.markdown(model_info)
+        except FileNotFoundError:
+            st.info("Model information file not found.")
+            # Provide basic information if file is missing
+            st.markdown("""
+            ## Recommended Models
             
+            - **For general use**: gpt-4o or gpt-3.5-turbo
+            - **For advanced reasoning**: o1 or o3 (if you have access)
+            
+            Note that o-series models (o1, o3) may return empty responses depending on your account permissions.
+            """)
+
 
 if __name__ == "__main__":
     main()

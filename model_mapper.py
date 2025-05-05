@@ -1,10 +1,24 @@
 """Helper module to handle model name mapping and parameters for OpenAI models
 
 Model Families:
-1. GPT-4 Series: gpt-4, gpt-4-turbo, gpt-4o (multimodal flagship models)
-2. o-Series: o1, o3, o4-mini (reasoning-focused models for coding, math, logic)
+1. GPT-4 Series (multimodal): gpt-4, gpt-4-turbo, gpt-4o (multimodal flagship models)
+   - Strengths: Image+audio input, TTS, web-search preview, faster tokens
+   - Complete feature set (vision, audio, search)
+   
+2. o-Series (reasoning): o1, o3, o4-mini (reasoning-focused models)
+   - Strengths: Long-form logic, code, math, structured thinking
+   - Limitations: Text-only, no vision/audio, may return empty responses
+   - Parameter differences: Uses max_completion_tokens instead of max_tokens
+   
 3. GPT-3.5 Series: gpt-3.5-turbo (legacy mid-tier)
+   - Most reliable for general use and highest rate limits
+
 4. Alias endpoints: chatgpt-4o-latest (convenience ID tracking latest build)
+
+Key differences:
+- Both use same chat/completions endpoint but parameters differ
+- o-series requires special access permissions for content generation
+- o-series models typically outperform GPT-4 on deep reasoning tasks
 """
 
 def map_model_name(model_name):

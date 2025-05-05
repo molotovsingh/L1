@@ -1,0 +1,32 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250505_064327",
+  "tier_a_model": "chatgpt-4o-latest",
+  "tier_b_model": "chatgpt-4o-latest",
+  "max_labels": 9,
+  "min_labels": 8,
+  "deny_list": [
+    "Hiring",
+    "Funding",
+    "Partnership"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "Ransomware-Attack",
+    "Zero-Day-Discovery",
+    "Patch-Release",
+    "Vulnerability-Disclosure",
+    "Malware-Outbreak",
+    "Phishing-Campaign-Detected",
+    "DDoS-Attack",
+    "Threat-Actor-Takedown"
+  ],
+  "rejected_labels": {
+    "Security-Protocol-Update": "Too broad; may refer to ongoing maintenance rather than a discrete event.",
+    "Credential-Leak": "Merged into Data-Breach as a subtype.",
+    "Regulatory-Enforcement-Action": "Merged into broader legal or regulatory responses; not specific to cybersecurity incidents.",
+    "Cybersecurity-Standard-Release": "Not an incident or attack; more of a policy or guideline publication.",
+    "Nation-State-Cyberattack": "Too specific in actor type; merged into broader attack types like Ransomware-Attack or DDoS-Attack.",
+    "Incident-Response-Initiated": "Describes a response process, not the initiating event itself."
+  }
+}
