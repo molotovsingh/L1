@@ -8,6 +8,7 @@ import json
 import datetime
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 
@@ -45,7 +46,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # ----- Helper Functions for API Calls -----
 def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Optional[str]:
-    """Calls the OpenAI API for Tier-A (candidate generation)."""
+    """Calls the OpenAI API for Tier-A (candidate generation) with retry logic."""
     if not OPENAI_AVAILABLE:
         st.error("OpenAI library required for Tier-A call but not found/installed.")
         return None
@@ -53,41 +54,76 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
         st.error("OPENAI_API_KEY required for Tier-A call but not found/set.")
         return None
 
-    try:
-        client = OpenAI(api_key=api_key)
-        st.info(f"🔹 Calling Tier-A (OpenAI) model ({model_name})...")
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=512,  # Generous buffer for JSON list
-        )
-        content = response.choices[0].message.content
-        if content:
-            return content.strip()
-        else:
-            st.error("Tier-A (OpenAI) API returned an empty response.")
+    # Retry parameters
+    max_retries = 3
+    retry_delays = [2, 5, 10]  # Exponential backoff in seconds
+    
+    for attempt in range(max_retries + 1):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            if attempt > 0:
+                st.info(f"🔄 Retry attempt {attempt}/{max_retries} for Tier-A (OpenAI) model...")
+            else:
+                st.info(f"🔹 Calling Tier-A (OpenAI) model ({model_name})...")
+                
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=512,  # Generous buffer for JSON list
+            )
+            content = response.choices[0].message.content
+            if content:
+                if attempt > 0:
+                    st.success(f"Successfully retrieved response after {attempt} retries.")
+                return content.strip()
+            else:
+                st.error("Tier-A (OpenAI) API returned an empty response.")
+                return None
+                
+        except OpenAI_RateLimitError:
+            if attempt < max_retries:
+                delay = retry_delays[attempt]
+                st.warning(f"⚠️ Tier-A API rate limit hit. Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
+                with st.spinner(f"Waiting {delay} seconds..."):
+                    time.sleep(delay)
+            else:
+                st.error("Tier-A API Error (OpenAI): Rate limit exceeded after maximum retries.")
+                st.info("This happens when too many requests are made to the OpenAI API in a short period. Please try again later or adjust your usage pattern.")
+                return None
+                
+        except OpenAI_AuthError:
+            st.error("Tier-A API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
             return None
-    except OpenAI_AuthError:
-        st.error("Tier-A API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
-        return None
-    except OpenAI_RateLimitError:
-        st.error("Tier-A API Error (OpenAI): Rate limit exceeded. Please wait a minute before trying again.")
-        st.info("This happens when too many requests are made to the OpenAI API in a short period. The free tier has limits on request frequency.")
-        return None
-    except OpenAI_ConnError:
-        st.error("Tier-A API Error (OpenAI): Could not connect to OpenAI API.")
-        return None
-    except OpenAI_APIError as e:
-        st.error(f"Tier-A API Error (OpenAI): {e}")
-        return None
-    except Exception as e:
-        st.error(f"An unexpected error occurred during Tier-A (OpenAI) call: {e}")
-        return None
+            
+        except OpenAI_ConnError:
+            if attempt < max_retries:
+                delay = retry_delays[attempt]
+                st.warning(f"⚠️ Connection error. Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
+                with st.spinner(f"Waiting {delay} seconds..."):
+                    time.sleep(delay)
+            else:
+                st.error("Tier-A API Error (OpenAI): Could not connect to OpenAI API after maximum retries.")
+                return None
+                
+        except OpenAI_APIError as e:
+            if attempt < max_retries and ("502" in str(e) or "503" in str(e) or "504" in str(e)):
+                delay = retry_delays[attempt]
+                st.warning(f"⚠️ API error ({e}). Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
+                with st.spinner(f"Waiting {delay} seconds..."):
+                    time.sleep(delay)
+            else:
+                st.error(f"Tier-A API Error (OpenAI): {e}")
+                return None
+                
+        except Exception as e:
+            st.error(f"An unexpected error occurred during Tier-A (OpenAI) call: {e}")
+            return None
 
 
 def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Optional[str]:
-    """Calls the OpenAI API (Tier-B)."""
+    """Calls the OpenAI API (Tier-B) with retry logic."""
     if model_name.lower() == "none/offline":
         st.warning("Tier‑B model call skipped (selected None/Offline).")
         return None
@@ -98,38 +134,73 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
         st.error("OPENAI_API_KEY required for Tier-B call but not found/set.")
         return None
 
-    try:
-        client = OpenAI(api_key=api_key)
-        st.info(f"🔹 Calling Tier‑B (OpenAI) model ({model_name})...")
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=512,
-            response_format={"type": "json_object"}  # Request JSON
-        )
-        content = response.choices[0].message.content
-        if content:
-            return content.strip()
-        else:
-            st.error("Tier-B (OpenAI) API returned an empty response.")
+    # Retry parameters
+    max_retries = 3
+    retry_delays = [2, 5, 10]  # Exponential backoff in seconds
+    
+    for attempt in range(max_retries + 1):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            if attempt > 0:
+                st.info(f"🔄 Retry attempt {attempt}/{max_retries} for Tier-B (OpenAI) model...")
+            else:
+                st.info(f"🔹 Calling Tier‑B (OpenAI) model ({model_name})...")
+                
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=512,
+                response_format={"type": "json_object"}  # Request JSON
+            )
+            content = response.choices[0].message.content
+            if content:
+                if attempt > 0:
+                    st.success(f"Successfully retrieved response after {attempt} retries.")
+                return content.strip()
+            else:
+                st.error("Tier-B (OpenAI) API returned an empty response.")
+                return None
+                
+        except OpenAI_RateLimitError:
+            if attempt < max_retries:
+                delay = retry_delays[attempt]
+                st.warning(f"⚠️ Tier-B API rate limit hit. Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
+                with st.spinner(f"Waiting {delay} seconds..."):
+                    time.sleep(delay)
+            else:
+                st.error("Tier-B API Error (OpenAI): Rate limit exceeded after maximum retries.")
+                st.info("This happens when too many requests are made to the OpenAI API in a short period. Please try again later or adjust your usage pattern.")
+                return None
+                
+        except OpenAI_AuthError:
+            st.error("Tier-B API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
             return None
-    except OpenAI_AuthError:
-        st.error("Tier-B API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
-        return None
-    except OpenAI_RateLimitError:
-        st.error("Tier-B API Error (OpenAI): Rate limit exceeded. Please wait a minute before trying again.")
-        st.info("This happens when too many requests are made to the OpenAI API in a short period. The free tier has limits on request frequency.")
-        return None
-    except OpenAI_ConnError:
-        st.error("Tier-B API Error (OpenAI): Could not connect to OpenAI API.")
-        return None
-    except OpenAI_APIError as e:
-        st.error(f"Tier-B API Error (OpenAI): {e}")
-        return None
-    except Exception as e:
-        st.error(f"An unexpected error occurred during Tier-B (OpenAI) call: {e}")
-        return None
+            
+        except OpenAI_ConnError:
+            if attempt < max_retries:
+                delay = retry_delays[attempt]
+                st.warning(f"⚠️ Connection error. Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
+                with st.spinner(f"Waiting {delay} seconds..."):
+                    time.sleep(delay)
+            else:
+                st.error("Tier-B API Error (OpenAI): Could not connect to OpenAI API after maximum retries.")
+                return None
+                
+        except OpenAI_APIError as e:
+            if attempt < max_retries and ("502" in str(e) or "503" in str(e) or "504" in str(e)):
+                delay = retry_delays[attempt]
+                st.warning(f"⚠️ API error ({e}). Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
+                with st.spinner(f"Waiting {delay} seconds..."):
+                    time.sleep(delay)
+            else:
+                st.error(f"Tier-B API Error (OpenAI): {e}")
+                return None
+                
+        except Exception as e:
+            st.error(f"An unexpected error occurred during Tier-B (OpenAI) call: {e}")
+            return None
 
 
 # ----- Core Taxonomy Generation Logic -----
