@@ -36,10 +36,16 @@ RETRY_DELAYS = [5, 15, 30, 60]  # Increased exponential backoff in seconds (up t
 # The newest OpenAI model is "gpt-4o" which was released May 13, 2024
 DEFAULT_TIER_A_OPTIONS: List[str] = [
     "gpt-4o",  # Powerful, reliable model
-    "gpt-3.5-turbo"  # Faster, more economical
+    "gpt-3.5-turbo",  # Faster, more economical
+    "custom"  # Allow user to specify a custom model
 ]
 
-DEFAULT_TIER_B_OPTIONS: List[str] = ["gpt-4o", "gpt-3.5-turbo", "None/Offline"]
+DEFAULT_TIER_B_OPTIONS: List[str] = [
+    "gpt-4o",  # Powerful, reliable model
+    "gpt-3.5-turbo",  # Faster, more economical
+    "custom",  # Allow user to specify a custom model
+    "None/Offline"  # Skip Tier-B processing
+]
 DEFAULT_MAX_LABELS: int = 9
 DEFAULT_MIN_LABELS: int = 8
 DEFAULT_DENY_LIST: str = "Funding\nHiring\nPartnership"
@@ -501,12 +507,23 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    tier_a_model = st.selectbox(
+                    tier_a_model_option = st.selectbox(
                         "Tier-A Model (OpenAI)", 
                         options=DEFAULT_TIER_A_OPTIONS,
                         index=0,
                         help="Select the OpenAI model for candidate generation"
                     )
+                    
+                    # If custom is selected, show an input field for custom model name
+                    if tier_a_model_option == "custom":
+                        tier_a_custom_model = st.text_input(
+                            "Custom Tier-A Model Name",
+                            value="gpt-4o-mini",
+                            help="Enter a valid OpenAI model name (e.g., gpt-4o-mini, gpt-4-turbo, etc.)"
+                        )
+                        tier_a_model = tier_a_custom_model
+                    else:
+                        tier_a_model = tier_a_model_option
                     
                     max_labels = st.number_input(
                         "Max Labels", 
@@ -524,12 +541,23 @@ def main():
                     )
                 
                 with col2:
-                    tier_b_model = st.selectbox(
+                    tier_b_model_option = st.selectbox(
                         "Tier-B Model (OpenAI)", 
                         options=DEFAULT_TIER_B_OPTIONS,
                         index=0,
                         help="Select the OpenAI model for refinement (or None/Offline to skip)"
                     )
+                    
+                    # If custom is selected, show an input field for custom model name
+                    if tier_b_model_option == "custom":
+                        tier_b_custom_model = st.text_input(
+                            "Custom Tier-B Model Name",
+                            value="gpt-4o-mini",
+                            help="Enter a valid OpenAI model name (e.g., gpt-4o-mini, gpt-4-turbo, etc.)"
+                        )
+                        tier_b_model = tier_b_custom_model
+                    else:
+                        tier_b_model = tier_b_model_option
                     
                     min_labels = st.number_input(
                         "Min Labels", 

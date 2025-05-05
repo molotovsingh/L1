@@ -1,0 +1,32 @@
+{
+  "domain": "edge computin",
+  "timestamp": "20250505_052109",
+  "tier_a_model": "gpt-4o",
+  "tier_b_model": "gpt-4o",
+  "max_labels": 9,
+  "min_labels": 8,
+  "deny_list": [
+    "Partnership",
+    "Hiring",
+    "Funding"
+  ],
+  "approved_labels": [
+    "Edge-Device-Launch",
+    "System-Outage",
+    "Data-Breach",
+    "Regulatory-Approval",
+    "Security-Vulnerability-Discovery",
+    "Software-Update-Release",
+    "Hardware-Failure",
+    "Network-Expansion",
+    "Edge-Node-Deployment"
+  ],
+  "rejected_labels": {
+    "Latency-Reduction-Breakthrough": "Not event-driven, describes a theme.",
+    "Protocol-Standardization": "Not event-driven, describes a theme.",
+    "Service-Interruption": "Synonym of System-Outage.",
+    "Compliance-Violation": "Not event-driven, describes a theme.",
+    "Performance-Optimization": "Not event-driven, describes a theme.",
+    "Firmware-Upgrade": "Merged into Software-Update-Release."
+  }
+}
