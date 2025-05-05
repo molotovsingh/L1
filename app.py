@@ -429,28 +429,31 @@ def main():
         st.header("Generate New Taxonomy")
         st.markdown("Enter your domain and configuration parameters below to start.")
 
+        # API provider selection outside the form to make model selection dynamic
+        api_provider = st.selectbox(
+            "API Provider",
+            options=API_PROVIDERS,
+            index=0,
+            help="Select which API provider to use for generating the taxonomy"
+        )
+        
+        # Display warning if Perplexity is selected but no API key is available
+        if api_provider == "Perplexity" and not perplexity_api_key:
+            st.warning("⚠️ No Perplexity API key found. Please add a PERPLEXITY_API_KEY to your environment variables.")
+        
         # Input Form
         with st.form("taxonomy_config_form"):
             domain = st.text_input("Domain", help="Enter the domain for which you want to generate a taxonomy (e.g., 'Artificial Intelligence', 'Healthcare Tech')")
             
-            # API provider selection
-            api_provider = st.selectbox(
-                "API Provider",
-                options=API_PROVIDERS,
-                index=0,
-                help="Select which API provider to use for generating the taxonomy"
-            )
-            
-            # Display warning if Perplexity is selected but no API key is available
-            if api_provider == "Perplexity" and not perplexity_api_key:
-                st.warning("⚠️ No Perplexity API key found. Please add a PERPLEXITY_API_KEY to your environment variables.")
+            # Hidden field to store API provider selection
+            api_provider_hidden = st.text_input("API Provider Hidden", value=api_provider, key="api_provider_hidden", label_visibility="collapsed")
             
             # Advanced settings expander
             with st.expander("Advanced Settings"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Conditionally display model options based on selected provider
+                    # Different model options based on the selected provider
                     if api_provider == "OpenAI":
                         tier_a_model_option = st.selectbox(
                             "Tier-A Model (OpenAI)", 
@@ -504,7 +507,7 @@ def main():
                     )
                 
                 with col2:
-                    # Conditionally display model options based on selected provider
+                    # Different model options based on the selected provider
                     if api_provider == "OpenAI":
                         tier_b_model_option = st.selectbox(
                             "Tier-B Model (OpenAI)", 
@@ -574,6 +577,9 @@ def main():
             status_container = st.empty()
             
             with status_container.container():
+                # Use the api_provider from hidden field (matches what was selected when form was populated)
+                form_api_provider = api_provider_hidden
+                
                 # Generate taxonomy based on selected API provider
                 approved, rejected, rejection_reasons = generate_taxonomy(
                     domain=domain,
@@ -583,7 +589,7 @@ def main():
                     min_labels=min_labels,
                     deny_list=deny_list,
                     out_dir=out_dir,
-                    api_provider=api_provider,
+                    api_provider=form_api_provider,
                     openai_api_key=openai_api_key,
                     perplexity_api_key=perplexity_api_key
                 )
