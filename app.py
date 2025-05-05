@@ -21,6 +21,7 @@ import db_models
 # Custom utilities
 import model_mapper
 import call_apis
+import call_perplexity_api
 
 # API clients
 try:
@@ -36,9 +37,12 @@ MAX_RETRIES = 4
 RETRY_DELAYS = [5, 15, 30, 60]  # Increased exponential backoff in seconds (up to 1 minute)
 
 # ----- Configuration (Defaults) -----
+# API providers
+API_PROVIDERS = ["OpenAI", "Perplexity"]
+
 # OpenAI models for both tiers
 # The newest OpenAI model is "gpt-4o" which was released May 13, 2024
-DEFAULT_TIER_A_OPTIONS: List[str] = [
+DEFAULT_OPENAI_TIER_A_OPTIONS: List[str] = [
     "gpt-4o",             # Powerful, reliable model (OpenAI's latest model)
     "gpt-4",              # Reliable model
     "gpt-3.5-turbo",      # Faster, more economical
@@ -47,7 +51,7 @@ DEFAULT_TIER_A_OPTIONS: List[str] = [
     "o1"                  # (NOT RECOMMENDED - may return empty responses)
 ]
 
-DEFAULT_TIER_B_OPTIONS: List[str] = [
+DEFAULT_OPENAI_TIER_B_OPTIONS: List[str] = [
     "gpt-4o",             # Powerful, reliable model (OpenAI's latest model)
     "gpt-4",              # Reliable model
     "gpt-3.5-turbo",      # Faster, more economical
@@ -56,6 +60,28 @@ DEFAULT_TIER_B_OPTIONS: List[str] = [
     "o3",                 # (NOT RECOMMENDED - may return empty responses)
     "o1"                  # (NOT RECOMMENDED - may return empty responses)
 ]
+
+# Perplexity models (as of May 2025)
+DEFAULT_PERPLEXITY_TIER_A_OPTIONS: List[str] = [
+    "sonar-medium",       # Good balance of quality and speed
+    "sonar-large",        # Higher quality but slower
+    "sonar-small",        # Faster but lower quality
+    "sonar-reasoning",    # Enhanced reasoning capabilities
+    "custom"              # Allow user to specify a custom model
+]
+
+DEFAULT_PERPLEXITY_TIER_B_OPTIONS: List[str] = [
+    "sonar-medium",       # Good balance of quality and speed
+    "sonar-large",        # Higher quality but slower
+    "sonar-small",        # Faster but lower quality
+    "sonar-reasoning",    # Enhanced reasoning capabilities
+    "custom",             # Allow user to specify a custom model
+    "None/Offline"        # Skip Tier-B processing
+]
+
+# Default to OpenAI options for backward compatibility
+DEFAULT_TIER_A_OPTIONS = DEFAULT_OPENAI_TIER_A_OPTIONS
+DEFAULT_TIER_B_OPTIONS = DEFAULT_OPENAI_TIER_B_OPTIONS
 DEFAULT_MAX_LABELS: int = 9
 DEFAULT_MIN_LABELS: int = 8
 DEFAULT_DENY_LIST: str = "Funding\nHiring\nPartnership"
@@ -70,14 +96,31 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # ----- Core Taxonomy Generation Logic -----
 def generate_taxonomy(domain: str, tier_a_model: str, tier_b_model: str, max_labels: int, min_labels: int, 
-                      deny_list: set, out_dir: Path, openai_api_key: Optional[str]):
+                      deny_list: set, out_dir: Path, api_provider: str = "OpenAI", 
+                      openai_api_key: Optional[str] = None, perplexity_api_key: Optional[str] = None):
     """
     The main function to generate and validate the taxonomy using APIs.
     
+    Args:
+        domain: The domain for which to generate a taxonomy
+        tier_a_model: The model to use for candidate generation
+        tier_b_model: The model to use for refinement
+        max_labels: Maximum number of labels in the taxonomy
+        min_labels: Minimum number of labels in the taxonomy
+        deny_list: Set of terms to exclude from the taxonomy
+        out_dir: Directory to save the taxonomy
+        api_provider: Which API provider to use ("OpenAI" or "Perplexity")
+        openai_api_key: OpenAI API key (if api_provider is "OpenAI")
+        perplexity_api_key: Perplexity API key (if api_provider is "Perplexity")
+        
+    Returns:
+        Tuple of approved labels, rejected labels, and rejection reasons
+        
     Note on o-series models (o1, o3, etc.):
     These models require special access permissions to return content. In many cases,
     they may return empty responses even though the API call succeeds. If you encounter
-    empty responses, consider using standard GPT models like gpt-4o or gpt-3.5-turbo.
+    empty responses, consider using standard GPT models like gpt-4o or gpt-3.5-turbo,
+    or switch to Perplexity API which provides more reliable results.
     """
     # Check for o-series models and display warning
     o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]

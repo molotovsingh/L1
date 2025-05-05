@@ -1,0 +1,852 @@
+"""
+Utility functions for interacting with Perplexity API.
+
+This module provides functions to query the Perplexity API, process responses,
+and track usage metrics for optimization.
+"""
+import os
+import re
+import time
+import uuid
+import json
+import hashlib
+import logging
+import requests
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
+
+from config import PERPLEXITY_API_KEY, PERPLEXITY_USE_REASONING
+from models import NewsItem
+from database import execute_query
+from perplexity_schemas import validate_perplexity_response
+
+# For testing with OpenAI-compatible client
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+logger = logging.getLogger(__name__)
+
+def get_perplexity_api_key() -> Optional[str]:
+    """
+    Get the Perplexity API key from environment variables.
+    
+    Returns:
+        str or None: API key if available, None otherwise
+    """
+    return PERPLEXITY_API_KEY
+
+def get_perplexity_use_reasoning() -> bool:
+    """
+    Check if we should use the reasoning model instead of the default model.
+    
+    Returns:
+        bool: True if we should use reasoning model, False otherwise
+    """
+    return PERPLEXITY_USE_REASONING
+
+def create_empty_signal_structure(error_type: str, message: str) -> Dict[str, Any]:
+    """
+    Create an empty but valid signal structure for error cases.
+    
+    Args:
+        error_type: Type of error that occurred
+        message: Error message or details
+        
+    Returns:
+        Dict: Valid empty signal structure
+    """
+    return {
+        "trading_signals": [],
+        "meta": {
+            "request_id": str(uuid.uuid4()),
+            "query_event_type": error_type,
+            "query_time": datetime.now().isoformat(),
+            "model": "sonar",
+            "version": "1.0",
+            "note": message
+        }
+    }
+
+def ensure_valid_signal_structure(signal_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Ensure that a signal data structure is valid, or create an empty one if needed.
+    
+    Args:
+        signal_data: Signal data structure to validate
+        
+    Returns:
+        Dict: Valid signal structure (original or new empty one)
+    """
+    # Handle None case
+    if signal_data is None:
+        logger.warning("Signal data was None, creating empty structure")
+        return create_empty_signal_structure("NULL_DATA", "Signal data was None")
+    
+    # Ensure trading_signals exists and is a list
+    if "trading_signals" not in signal_data:
+        logger.warning("No trading_signals field in signal data, adding empty array")
+        signal_data["trading_signals"] = []
+    elif not isinstance(signal_data["trading_signals"], list):
+        logger.warning(f"trading_signals is not a list (type: {type(signal_data['trading_signals']).__name__}), replacing with empty array")
+        signal_data["trading_signals"] = []
+    
+    # Ensure meta exists and is a dict
+    if "meta" not in signal_data:
+        logger.warning("No meta field in signal data, adding empty object")
+        signal_data["meta"] = {}
+    elif not isinstance(signal_data["meta"], dict):
+        logger.warning(f"meta is not a dict (type: {type(signal_data['meta']).__name__}), replacing with empty object")
+        signal_data["meta"] = {}
+    
+    # Ensure meta has standard fields
+    meta = signal_data["meta"]
+    missing_fields = []
+    if "request_id" not in meta:
+        meta["request_id"] = str(uuid.uuid4())
+        missing_fields.append("request_id")
+    if "query_time" not in meta:
+        meta["query_time"] = datetime.now().isoformat()
+        missing_fields.append("query_time")
+    if "version" not in meta:
+        meta["version"] = "1.0"
+        missing_fields.append("version")
+    
+    if missing_fields:
+        logger.info(f"Added missing meta fields: {', '.join(missing_fields)}")
+        
+    return signal_data
+
+def log_perplexity_usage(event_type: str, model_used: str, response_time: float, token_count: int):
+    """
+    Log Perplexity API usage for tracking and optimization.
+    
+    Args:
+        event_type: Type of event fetched
+        model_used: Which model was used (sonar/sonar-reasoning)
+        response_time: Time taken for request (seconds)
+        token_count: Number of tokens used in the response
+    """
+    query = """
+    INSERT INTO api_usage_log (
+        api_name, endpoint, params, response_time, token_count, created_at, status, additional_info
+    ) VALUES (
+        'perplexity', 'chat', %s, %s, %s, %s, 'success', %s
+    )
+    """
+    
+    params = {
+        "event_type": event_type,
+        "model": model_used
+    }
+    
+    additional_info = {
+        "event_type": event_type,
+        "model": model_used
+    }
+    
+    data = (
+        json.dumps(params),
+        response_time,
+        token_count,
+        datetime.now(),
+        json.dumps(additional_info)
+    )
+    
+    try:
+        execute_query(query, data, fetch=False)
+    except Exception as e:
+        logger.error(f"Error logging Perplexity API usage: {e}")
+
+# Standardized prompt components for reuse across different query types
+SYSTEM_PROMPT_TEMPLATE = """You are a financial trading signal expert that extracts structured market events from financial news.
+Your task is to analyze market events and generate well-defined trading signals based on real data.
+Your output must strictly follow the output schema provided in each request.
+"""
+
+# Schema for event queries
+EVENT_QUERY_SCHEMA = """
+{
+  "trading_signals": [
+    {
+      "signal_id": "unique_identifier_string",
+      "signal_name": "Brief descriptive name of the event", 
+      "signal_date": "YYYY-MM-DD", // ISO format date of the event
+      "company": "Full legal company name",
+      "symbol": "Stock ticker symbol",
+      "event_description": "Detailed factual description of what happened",
+      "traded": "Y", // Y if tradable, N if not
+      "direction": "BUY", // BUY, SELL, or HOLD
+      "meta": {
+        "event_hash": "md5_hash_of_event_key_components",
+        "event_type": "EVENT_TYPE_SPECIFIED_IN_QUERY",
+        "confidence": 0.95, // confidence level between 0 and 1
+        "sources": ["https://source1.com", "https://source2.com"]
+      }
+    }
+  ],
+  "meta": {
+    "request_id": "unique_request_id",
+    "query_event_type": "EVENT_TYPE_SPECIFIED_IN_QUERY",
+    "query_time": "ISO datetime of when query was made",
+    "model": "model name used for generation",
+    "version": "1.0" // API version
+  }
+}
+"""
+
+def create_perplexity_prompt(event_type: str, days_back: int = 7) -> str:
+    """
+    Create a standardized prompt for the Perplexity API based on event type.
+    Uses a consistent format to ensure schema compliance and efficient processing.
+    
+    Args:
+        event_type: Type of event to query (e.g., TAX_RAID, FDA_APPROVAL)
+        days_back: Number of days to look back
+        
+    Returns:
+        str: Formatted prompt for Perplexity API
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    
+    # Base prompt template that's consistent across all event types
+    base_prompt = f"""# Financial Event Data Extraction
+
+## Query Parameters
+- Event Type: {event_type}
+- Date Range: {start_date} to {today}
+- Source: Public financial news and regulatory filings
+
+## Requirements
+1. Only include real, verifiable events from the specified date range
+2. For each event, analyze:
+   - Is this a tradable market signal? (traded: "Y"/"N")
+   - What is the appropriate trading direction? (BUY/SELL/HOLD)
+   - How confident are we in this signal? (0.0-1.0)
+3. Include source URLs when available
+4. If no events of this type occurred in the specified time range, return an empty "trading_signals" array
+
+## Output Schema
+Your response must strictly follow this JSON structure:
+{EVENT_QUERY_SCHEMA}
+"""
+    
+    # Specific instructions based on event type
+    event_specific_instructions = ""
+    
+    if event_type == "TAX_RAID":
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant corporate tax raids, investigations, or audits from {start_date} to {today}.
+- Focus on government or regulatory tax investigations of public companies
+- Include raids on corporate headquarters, executive homes, or branch offices
+- The direction is typically SELL as tax raids often indicate compliance issues
+- Confidence should be high (0.8+) for verified raids reported by major news outlets
+"""
+    elif event_type == "FDA_APPROVAL":
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant FDA drug or medical device approvals from {start_date} to {today}.
+- Focus on full approvals rather than preliminary or phase trial results
+- Include the specific drug or device name and its intended use
+- The direction is typically BUY as approvals often indicate positive revenue potential
+- Confidence should be very high (0.9+) for verified FDA approvals reported in official sources
+"""
+    elif event_type == "CEO_CHANGE":
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant CEO changes or executive leadership transitions from {start_date} to {today}.
+- Focus on permanent CEO appointments or departures, not interim positions
+- Include reasons for the change if available (retirement, performance, scandal, etc.)
+- Direction should be:
+  - BUY if the change is viewed positively by analysts
+  - SELL if the change is viewed negatively or comes amid controversy
+  - HOLD if impact is unclear or mixed
+- Confidence should consider market reaction and analyst consensus
+"""
+    elif event_type == "LITIGATION":
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant corporate litigation events, settlements, or lawsuits from {start_date} to {today}.
+- Focus on cases with material financial impact (large settlements, significant penalties)
+- Include the nature of the litigation (antitrust, patent, consumer, securities, etc.)
+- Direction should be:
+  - SELL if the company faces significant liability or penalties
+  - BUY if a settlement resolves uncertainty positively
+  - HOLD if impact is unclear or balanced
+- Consider materiality relative to company size and financial position
+"""
+    elif event_type == "EARNINGS_SURPRISE":
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant earnings surprises and unexpected financial results from {start_date} to {today}.
+- Focus on earnings that substantially beat or missed analyst expectations
+- Include the percentage or amount of the beat/miss and revenue performance
+- Direction should be:
+  - BUY for significant positive surprises with strong guidance
+  - SELL for major earnings misses or negative guidance
+  - HOLD for mixed results or in-line performance
+- Consider market reaction and whether the surprise indicates a trend change
+"""
+    elif event_type == "PRODUCT_LAUNCH":
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant product launches or new service announcements from {start_date} to {today}.
+- Focus on major product releases that could materially impact revenue 
+- Include market size estimates, reception, and competitive positioning
+- Direction should be:
+  - BUY if the product is well-received and shows strong potential
+  - SELL if the launch was poorly executed or received negative feedback
+  - HOLD if market reaction is mixed or impact is unclear
+- Consider the product's importance to the company's overall strategy
+"""
+    elif event_type == "MARKET_EVENTS":
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant market-moving events affecting public companies from {start_date} to {today}.
+- Include earnings reports, product announcements, mergers, executive changes
+- Focus on events with clear stock price impact that could create trading opportunities
+- Include specific details on magnitude and direction of price movement
+- Direction should align with the observed or expected price impact
+- Higher confidence scores for events with established price patterns
+"""
+    else:
+        # Generic template for other event types
+        event_specific_instructions = f"""## Event-Specific Instructions
+Find significant events related to {event_type} affecting publicly traded companies from {start_date} to {today}.
+- Focus on events that could materially impact stock price or company operations
+- Include specific details that differentiate this event from routine business activities
+- Direction should reflect the event's likely impact on company value
+- Confidence should reflect reliability of sources and clarity of market impact
+"""
+    
+    # Combine base prompt with event-specific instructions
+    full_prompt = base_prompt + event_specific_instructions
+    
+    # Final note to emphasize data quality
+    data_quality_note = """
+## Data Quality Requirements
+- Only include confirmed events with reliable sources
+- Include accurate stock symbols (tickers) for public companies
+- Assign "traded": "Y" only when the event has clear trading implications
+- Use consistent date formats (YYYY-MM-DD)
+- Generate unique IDs for each event
+"""
+    
+    return full_prompt + data_quality_note
+
+def fetch_perplexity_signals(
+    event_type: str = "TAX_RAID",
+    days_back: int = 7,
+    use_reasoning_override: Optional[bool] = None
+) -> Dict[str, Any]:
+    """
+    Fetch structured signal data directly from Perplexity API.
+    
+    Args:
+        event_type: Type of event to fetch (e.g., "TAX_RAID")
+        days_back: Number of days to look back
+        use_reasoning_override: Override global model preference
+        
+    Returns:
+        Dict: Structured signal data
+        
+    Raises:
+        ValueError: If API key is missing or response validation fails
+        ConnectionError: If API request fails
+    """
+    api_key = get_perplexity_api_key()
+    if not api_key:
+        raise ValueError("Perplexity API key not found")
+    
+    # Determine which model to use
+    use_reasoning = use_reasoning_override if use_reasoning_override is not None else get_perplexity_use_reasoning()
+    
+    # Perplexity API models mapping (as of May 2025)
+    # Based on the Perplexity documentation, we now support these models:
+    # - Reasoning models (real-time search):
+    #   - sonar-reasoning-pro: Enhanced reasoning with multi-step problem-solving and search
+    #   - sonar-reasoning: Quick problem-solving and reasoning model with search
+    # - Non-reasoning models (real-time search):
+    #   - sonar-pro: Advanced search model for complex queries
+    #   - sonar: Lightweight search model
+    
+    if use_reasoning:
+        # Use the reasoning model with search capabilities
+        model = "sonar-reasoning"
+    else:
+        # Use the standard search model (lightweight version)
+        model = "sonar"
+        
+    logger.info(f"Selected Perplexity model: {model} (reasoning={use_reasoning})")
+    
+    # Create prompt
+    prompt = create_perplexity_prompt(event_type, days_back)
+    
+    # Make sure we have the proper API key format
+    # Perplexity API keys should start with "pplx-" 
+    if not api_key.startswith("pplx-"):
+        logger.warning("Perplexity API key doesn't have the expected format. It should start with 'pplx-'")
+    
+    # Track performance
+    start_time = time.time()
+    
+    try:
+        # Log request details for debugging (without sensitive data)
+        logger.info(f"Sending request to Perplexity API: model={model}")
+        
+        # Use OpenAI client with Perplexity base URL
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url="https://api.perplexity.ai")
+        
+        # Construct the messages using our standardized system prompt template
+        messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT_TEMPLATE
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        # Make the API call
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.0,
+            max_tokens=3000,
+            top_p=1,
+            stream=False
+        )
+        
+        response_time = time.time() - start_time
+        
+        # Extract the content
+        content = response.choices[0].message.content
+        logger.info(f"Received response of length: {len(content) if content else 0}")
+        
+        # Use our improved extraction function to parse responses
+        signal_data = extract_signals_from_perplexity({'choices': [{'message': {'content': content}}]})
+        
+        # Ensure we have a valid signal structure
+        # Note: this is redundant since extract_signals_from_perplexity already does this,
+        # but we're doing it again for extra safety
+        signal_data = ensure_valid_signal_structure(signal_data)
+        
+        # Log the structure we received
+        logger.info(f"Successfully extracted signal data with keys: {list(signal_data.keys())}")
+        
+        # Add request metadata (will be merged with any existing metadata)
+        signal_data["meta"].update({
+            "request_id": str(uuid.uuid4()),
+            "query_event_type": event_type,
+            "query_time": datetime.now().isoformat(),
+            "model": model,
+            "version": "1.0"
+        })
+        
+        # Validate the signal data against schema
+        try:
+            validate_perplexity_response(signal_data)
+            logger.info("Signal data successfully validated against schema")
+        except ValueError as validation_error:
+            logger.error(f"Perplexity API error: {validation_error}")
+            logger.warning("Response failed schema validation, but proceeding with extracted data")
+        
+        # Log usage (token count is approximate)
+        token_count = len(content.split()) * 1.3  # Rough estimate
+        log_perplexity_usage(event_type, model, response_time, int(token_count))
+        
+        return signal_data
+        
+    except Exception as e:
+        logger.error(f"Perplexity API error: {e}")
+        if "401" in str(e):
+            raise ConnectionError(f"Authentication failed for Perplexity API. Check if your API key is valid and properly formatted.")
+        elif "403" in str(e):
+            raise ConnectionError(f"Permission denied for Perplexity API. Your API key may not have access to this model.")
+        elif "429" in str(e):
+            raise ConnectionError(f"Rate limit exceeded for Perplexity API. Try again later.")
+        else:
+            raise ConnectionError(f"Failed to connect to Perplexity API: {e}")
+
+def process_perplexity_signals(signals_data: Dict[str, Any]) -> List[NewsItem]:
+    """
+    Process Perplexity signal data into our internal NewsItem format.
+    
+    Args:
+        signals_data: Perplexity signal response
+        
+    Returns:
+        List[NewsItem]: Processed news items
+    """
+    news_items = []
+    
+    # Ensure signals_data has proper structure before processing
+    valid_signals_data = ensure_valid_signal_structure(signals_data)
+    
+    # Check if we have trading signals to process
+    if not valid_signals_data or not valid_signals_data["trading_signals"]:
+        logger.info("No trading signals found in Perplexity response")
+        return news_items
+    
+    metadata = valid_signals_data.get("meta", {})
+    
+    for signal in valid_signals_data["trading_signals"]:
+        # Parse date
+        try:
+            timestamp = datetime.fromisoformat(signal["signal_date"])
+        except ValueError:
+            timestamp = datetime.now()
+        
+        # Create headline and body
+        headline = signal["signal_name"]
+        body = signal["event_description"]
+        
+        # Extract ticker
+        ticker = signal["symbol"]
+        
+        # Create metadata
+        signal_meta = signal.get("meta", {})
+        meta = {
+            "event_type": signal_meta.get("event_type", ""),
+            "confidence": signal_meta.get("confidence", 0.0),
+            "sources": signal_meta.get("sources", []),
+            "signal_id": signal["signal_id"],
+            "direction": signal["direction"],
+            "traded": signal["traded"],
+            "perplexity_model": metadata.get("model", ""),
+            "perplexity_request_id": metadata.get("request_id", "")
+        }
+        
+        # Create news item
+        news_item = NewsItem(
+            timestamp=timestamp,
+            source=f"perplexity:{meta['event_type']}",
+            headline=headline,
+            body=body,
+            tickers=[ticker],
+            meta=meta
+        )
+        
+        news_items.append(news_item)
+        
+        # Register event in registry
+        register_perplexity_event(
+            meta["event_type"],
+            signal["company"],
+            ticker,
+            timestamp,
+            meta,
+            signal["signal_id"]
+        )
+    
+    return news_items
+
+# The following functions are used for the prompt testing tab
+def send_perplexity_request(
+    prompt: str,
+    model: str = "sonar",
+    temperature: float = 0.0,
+    request_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Send a raw request to the Perplexity API.
+    This function is primarily used for testing different prompts.
+    
+    Args:
+        prompt: The prompt to send
+        model: Which model to use
+        temperature: Temperature setting (0-1)
+        request_id: Optional request ID
+        
+    Returns:
+        Dict: Raw API response
+        
+    Raises:
+        ValueError: If API key is missing
+        ConnectionError: If API request fails
+    """
+    api_key = get_perplexity_api_key()
+    if not api_key:
+        raise ValueError("Perplexity API key not found")
+    
+    # Make sure we have the proper API key format
+    if not api_key.startswith("pplx-"):
+        logger.warning("Perplexity API key doesn't have the expected format. It should start with 'pplx-'")
+    
+    # Track performance
+    start_time = time.time()
+    
+    try:
+        # Use OpenAI client with Perplexity base URL
+        client = OpenAI(api_key=api_key, base_url="https://api.perplexity.ai")
+        
+        # Construct messages
+        messages = [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        # Make the API call
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=3000,
+            top_p=1,
+            stream=False
+        )
+        
+        # Convert to dictionary for easier handling
+        return response.model_dump()
+        
+    except Exception as e:
+        logger.error(f"Perplexity API error in testing: {e}")
+        if "401" in str(e):
+            raise ConnectionError(f"Authentication failed for Perplexity API. Check if your API key is valid.")
+        elif "403" in str(e):
+            raise ConnectionError(f"Permission denied for Perplexity API. Your API key may not have access to this model.")
+        elif "429" in str(e):
+            raise ConnectionError(f"Rate limit exceeded for Perplexity API. Try again later.")
+        else:
+            raise ConnectionError(f"Failed to connect to Perplexity API: {e}")
+
+def extract_json_from_response(response: str) -> Dict[str, Any]:
+    """
+    Extract JSON from a Perplexity API response with multiple fallback methods.
+    
+    Args:
+        response: String response from Perplexity API
+        
+    Returns:
+        Dict: Extracted JSON data or default structure if extraction fails
+    """
+    try:
+        # First try direct parsing
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            # Not clean JSON, continue with extraction methods
+            pass
+        
+        # Method 1: Look for JSON in markdown code blocks
+        if "```" in response:
+            json_pattern = r'```(?:json)?\s*([\s\S]*?)```'
+            matches = re.findall(json_pattern, response)
+            
+            if matches:
+                # Try each match from longest to shortest
+                sorted_matches = sorted(matches, key=len, reverse=True)
+                for json_content in sorted_matches:
+                    try:
+                        return json.loads(json_content.strip())
+                    except json.JSONDecodeError:
+                        continue
+        
+        # Method 2: Look for JSON with curly braces
+        json_start = response.find('{')
+        json_end = response.rfind('}')
+        
+        if json_start >= 0 and json_end > json_start:
+            json_content = response[json_start:json_end+1]
+            try:
+                return json.loads(json_content)
+            except json.JSONDecodeError:
+                logger.warning("Failed to extract JSON by curly braces")
+        
+        # Method 3: Look for array objects
+        if "[" in response and "]" in response:
+            json_start = response.find('[')
+            json_end = response.rfind(']')
+            
+            if json_start >= 0 and json_end > json_start:
+                json_content = response[json_start:json_end+1]
+                try:
+                    return {"items": json.loads(json_content)}
+                except json.JSONDecodeError:
+                    pass
+        
+        # If all extraction methods fail, log and return default
+        logger.warning("All JSON extraction methods failed, creating placeholder structure")
+        
+    except Exception as e:
+        logger.error(f"Error extracting JSON from response: {e}")
+    
+    # Return basic structure
+    return {
+        "detection_parameters": {
+            "required_terms": [],
+            "preferred_terms": [],
+            "excluded_terms": [],
+            "confidence_threshold": 0.75,
+            "entity_types": ["COMPANY", "TICKER"]
+        },
+        "metadata_schema": {
+            "company_name": "string",
+            "ticker": "string"
+        }
+    }
+
+def extract_signals_from_perplexity(response: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract structured signal data from a raw Perplexity API response.
+    
+    Args:
+        response: Raw API response from Perplexity
+        
+    Returns:
+        Dict: Extracted signal data with proper structure (even if extraction fails)
+        
+    Note:
+        This function always returns a valid signal structure, using fallbacks when needed.
+        The returned dictionary will always have 'trading_signals' and 'meta' keys.
+    """
+    try:
+        # Extract the content
+        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        
+        # If content is empty, return an empty structure
+        if not content:
+            logger.warning("Empty content received from Perplexity")
+            return create_empty_signal_structure("EMPTY_RESPONSE", "No content received from API")
+        
+        # Try various methods to extract JSON
+        signal_data = None
+        
+        # Scenario 1: Content is properly formatted JSON
+        try:
+            signal_data = json.loads(content)
+            logger.info(f"Successfully parsed clean JSON response")
+            return ensure_valid_signal_structure(signal_data)
+        except json.JSONDecodeError:
+            # Not clean JSON, continue with extraction methods
+            logger.info("Content is not clean JSON, attempting extraction...")
+        
+        # Scenario 2: Markdown code blocks
+        if "```" in content:
+            try:
+                import re
+                # Look for content between ```json and ``` markers
+                json_pattern = r'```(?:json)?\s*([\s\S]*?)```'
+                matches = re.findall(json_pattern, content)
+                
+                if matches:
+                    # Try each match from longest to shortest (prefer complete structures)
+                    sorted_matches = sorted(matches, key=len, reverse=True)
+                    for json_content in sorted_matches:
+                        try:
+                            signal_data = json.loads(json_content.strip())
+                            logger.info(f"Successfully extracted JSON from markdown code block")
+                            return ensure_valid_signal_structure(signal_data)
+                        except json.JSONDecodeError:
+                            continue
+            except Exception as e:
+                logger.warning(f"Error extracting from markdown: {e}")
+        
+        # Scenario 3: JSON embedded in explanatory text
+        try:
+            json_start = content.find('{')
+            json_end = content.rfind('}')
+            
+            if json_start >= 0 and json_end > json_start:
+                json_content = content[json_start:json_end+1]
+                signal_data = json.loads(json_content)
+                logger.info(f"Successfully extracted JSON by curly braces")
+                return ensure_valid_signal_structure(signal_data)
+        except json.JSONDecodeError:
+            logger.warning("Failed to extract JSON by curly braces")
+        
+        # Scenario 4: Regex pattern for our specific JSON structure
+        try:
+            import re
+            json_pattern = r'{\s*"trading_signals"\s*:\s*\[.*?\]\s*,\s*"meta"\s*:.*?}'
+            matches = re.findall(json_pattern, content, re.DOTALL)
+            
+            if matches:
+                for potential_json in matches:
+                    try:
+                        signal_data = json.loads(potential_json)
+                        logger.info(f"Successfully extracted JSON with regex pattern")
+                        return ensure_valid_signal_structure(signal_data)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            logger.warning(f"Error with regex extraction: {e}")
+        
+        # If we got this far, all extraction methods failed
+        logger.warning("All JSON extraction methods failed, creating placeholder structure")
+        
+        # Return a placeholder structure with appropriate context
+        if content.strip().startswith(("Based on", "According to", "I found", "I've analyzed")):
+            structure = create_empty_signal_structure("TEXT_RESPONSE", f"Text explanation response: {content[:100]}...")
+            return ensure_valid_signal_structure(structure)
+        else:
+            structure = create_empty_signal_structure("JSON_PARSE_ERROR", f"Failed to parse JSON: {content[:100]}...")
+            return ensure_valid_signal_structure(structure)
+        
+    except Exception as e:
+        logger.error(f"Error extracting signals from Perplexity response: {e}")
+        structure = create_empty_signal_structure("EXTRACTION_ERROR", str(e))
+        return ensure_valid_signal_structure(structure)
+
+def register_perplexity_event(
+    event_type: str,
+    company: str,
+    ticker: str,
+    event_date: datetime,
+    details: Dict[str, Any],
+    event_key: Optional[str] = None
+) -> bool:
+    """
+    Register a Perplexity event in the event registry.
+    
+    Args:
+        event_type: Type of event
+        company: Company name
+        ticker: Ticker symbol
+        event_date: Date of the event
+        details: Additional details about the event
+        event_key: Optional unique key for the event (generated if not provided)
+        
+    Returns:
+        bool: True if registered successfully, False otherwise
+    """
+    # Generate event key if not provided
+    if not event_key:
+        hash_input = f"{event_type}:{company}:{ticker}:{event_date.isoformat()}"
+        event_key = hashlib.md5(hash_input.encode()).hexdigest()
+    
+    query = """
+    INSERT INTO event_registry (
+        event_key, event_type, company, event_date, details, created_at, updated_at
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s
+    )
+    ON CONFLICT (event_key) 
+    DO UPDATE SET
+        details = event_registry.details || %s::jsonb,
+        updated_at = %s
+    RETURNING id
+    """
+    
+    now = datetime.now()
+    details_json = json.dumps(details)
+    
+    data = (
+        event_key,
+        event_type,
+        company,
+        event_date.date(),
+        details_json,
+        now,
+        now,
+        details_json,
+        now
+    )
+    
+    try:
+        result = execute_query(query, data, fetch=True)
+        return bool(result)
+    except Exception as e:
+        logger.error(f"Error registering Perplexity event: {e}")
+        return False
