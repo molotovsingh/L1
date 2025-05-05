@@ -439,22 +439,24 @@ Return only the JSON object now.
     except Exception as e:
         st.error(f"Failed to save taxonomy to file: {e}")
     
-    # Save to database
-    try:
-        taxonomy_id = db_models.create_taxonomy(
-            domain=domain,
-            tier_a_model=tier_a_model,
-            tier_b_model=tier_b_model,
-            max_labels=max_labels,
-            min_labels=min_labels,
-            deny_list=deny_list,
-            approved_labels=approved,
-            rejected_labels=rejected if rejected else [],
-            rejection_reasons=rejected_info if rejected_info else {}
-        )
-        st.success(f"Taxonomy saved to database with ID: {taxonomy_id}")
-    except Exception as e:
-        st.error(f"Failed to save taxonomy to database: {e}")
+    # Save to database with improved error handling
+    taxonomy_id = db_models.create_taxonomy(
+        domain=domain,
+        tier_a_model=tier_a_model,
+        tier_b_model=tier_b_model,
+        max_labels=max_labels,
+        min_labels=min_labels,
+        deny_list=deny_list,
+        approved_labels=approved,
+        rejected_labels=rejected if rejected else [],
+        rejection_reasons=rejected_info if rejected_info else {}
+    )
+    
+    if taxonomy_id:
+        st.success(f"✅ Taxonomy saved to database with ID: {taxonomy_id}")
+    else:
+        st.warning("⚠️ Taxonomy was saved to file but not to database due to a connection issue.")
+        st.info("Your data is safe, but won't appear in the 'View Previous Taxonomies' tab until database connectivity is restored.")
 
     return approved, rejected, rejected_info
 
@@ -597,10 +599,39 @@ def main():
             # Fetch all taxonomies from the database
             taxonomies = db_models.get_taxonomies()
             
-            if not taxonomies:
+            if taxonomies is None:
+                st.warning("⚠️ Database connection issues detected. Trying to load taxonomies from files...")
+                
+                # Attempt to load from files as fallback
+                try:
+                    file_taxonomies = []
+                    taxonomy_dir = Path('taxonomies')
+                    if taxonomy_dir.exists() and taxonomy_dir.is_dir():
+                        for file in taxonomy_dir.glob('*.json'):
+                            try:
+                                with open(file, 'r') as f:
+                                    taxonomy_data = json.load(f)
+                                    # Add file path as ID and source information
+                                    taxonomy_data['id'] = str(file)
+                                    taxonomy_data['source'] = 'file'
+                                    file_taxonomies.append(taxonomy_data)
+                            except Exception as file_err:
+                                print(f"Error loading taxonomy file {file}: {file_err}")
+                        
+                        if file_taxonomies:
+                            st.success(f"✅ Found {len(file_taxonomies)} taxonomies in files.")
+                            taxonomies = file_taxonomies
+                        else:
+                            st.info("No taxonomy files found. Generate one in the 'Generate Taxonomy' tab.")
+                    else:
+                        st.info("No taxonomy directory found. Generate a taxonomy first.")
+                except Exception as file_err:
+                    st.error(f"Error reading taxonomy files: {file_err}")
+                    taxonomies = []
+            elif not taxonomies:
                 st.info("No taxonomies found in the database. Generate one in the 'Generate Taxonomy' tab.")
             else:
-                st.success(f"Found {len(taxonomies)} taxonomies in the database.")
+                st.success(f"✅ Found {len(taxonomies)} taxonomies in the database.")
                 
                 # Create a dropdown to select which taxonomy to view
                 taxonomy_options = [f"{t['domain']} ({t['timestamp']})" for t in taxonomies]

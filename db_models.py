@@ -5,9 +5,23 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
-# Create database engine
+# Create database engine with connection pool settings
 DATABASE_URL = os.environ.get("DATABASE_URL")
-engine = create_engine(DATABASE_URL)
+if DATABASE_URL:
+    # Add connection pool settings to help with temporary connection issues
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,  # Test connections before using them
+        pool_recycle=3600,   # Recycle connections after 1 hour
+        pool_timeout=30,     # Wait up to 30 seconds for a connection
+        max_overflow=10,     # Allow up to 10 extra connections when pool is full
+        echo=False           # Don't log all SQL
+    )
+else:
+    # Fallback for when no DATABASE_URL is provided
+    import sqlite3
+    print("WARNING: No DATABASE_URL found, using in-memory SQLite database")
+    engine = create_engine("sqlite:///:memory:")
 
 # Create declarative base
 Base = declarative_base()
@@ -97,8 +111,31 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
         rejection_reasons (dict): Mapping of rejected labels to reasons
         
     Returns:
-        int: The ID of the created taxonomy
+        int: The ID of the created taxonomy or None if there was an error
     """
+    # First try to save to file system as a backup
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"taxonomies/{domain.replace(' ', '_')}_{timestamp}.json"
+    try:
+        os.makedirs("taxonomies", exist_ok=True)
+        taxonomy_data = {
+            "domain": domain,
+            "timestamp": timestamp,
+            "tier_a_model": tier_a_model,
+            "tier_b_model": tier_b_model,
+            "max_labels": max_labels,
+            "min_labels": min_labels,
+            "deny_list": list(deny_list),
+            "approved_labels": approved_labels,
+            "rejected_labels": {label: rejection_reasons.get(label, "No reason") for label in rejected_labels}
+        }
+        with open(filename, "w") as f:
+            json.dump(taxonomy_data, f, indent=2)
+        print(f"Taxonomy backed up to file: {filename}")
+    except Exception as file_err:
+        print(f"Warning: Failed to backup taxonomy to file: {file_err}")
+    
+    # Now try database save
     session = SessionLocal()
     try:
         # Create taxonomy
@@ -132,10 +169,27 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
             session.add(rejected_label)
         
         session.commit()
+        print(f"Taxonomy saved to database with ID: {taxonomy.id}")
         return taxonomy.id
     except Exception as e:
         session.rollback()
-        raise e
+        
+        # Log specific database error types for debugging
+        error_msg = str(e).lower()
+        if "ssl connection has been closed unexpectedly" in error_msg:
+            print(f"Database connection error (SSL closed): {e}")
+            print("This is likely a temporary connection issue. Taxonomy was saved to file as backup.")
+        elif "connection timed out" in error_msg:
+            print(f"Database connection timeout: {e}")
+            print("The database connection timed out. Taxonomy was saved to file as backup.")
+        elif "too many connections" in error_msg:
+            print(f"Database connection pool error: {e}")
+            print("Too many database connections. The server may be under heavy load.")
+        else:
+            print(f"Database error: {e}")
+        
+        # Return None to indicate failure, but don't crash - we have a file backup
+        return None
     finally:
         session.close()
 
@@ -191,10 +245,24 @@ def delete_taxonomy(taxonomy_id):
         if taxonomy:
             session.delete(taxonomy)
             session.commit()
+            print(f"Taxonomy with ID {taxonomy_id} deleted successfully")
             return True
+        print(f"Taxonomy with ID {taxonomy_id} not found")
         return False
     except Exception as e:
         session.rollback()
-        raise e
+        
+        # Log specific database error types for debugging
+        error_msg = str(e).lower()
+        if "ssl connection has been closed unexpectedly" in error_msg:
+            print(f"Database connection error during delete (SSL closed): {e}")
+            print("This is likely a temporary connection issue. Try again later.")
+        elif "connection timed out" in error_msg:
+            print(f"Database connection timeout during delete: {e}")
+            print("The database connection timed out. Try again later.")
+        else:
+            print(f"Database error during delete: {e}")
+        
+        return False
     finally:
         session.close()
