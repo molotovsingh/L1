@@ -308,12 +308,30 @@ Return only the JSON object now.
         "deny_list": list(deny_list)
     }
     
+    # Save to file system
     try:
         with open(output_file, "w") as f:
             json.dump(taxonomy_data, f, indent=2)
-        st.success(f"Taxonomy saved to {output_file}")
+        st.success(f"Taxonomy saved to file: {output_file}")
     except Exception as e:
-        st.error(f"Failed to save taxonomy: {e}")
+        st.error(f"Failed to save taxonomy to file: {e}")
+    
+    # Save to database
+    try:
+        taxonomy_id = db_models.create_taxonomy(
+            domain=domain,
+            tier_a_model=tier_a_model,
+            tier_b_model=tier_b_model,
+            max_labels=max_labels,
+            min_labels=min_labels,
+            deny_list=deny_list,
+            approved_labels=approved,
+            rejected_labels=rejected if rejected else [],
+            rejection_reasons=rejected_info if rejected_info else {}
+        )
+        st.success(f"Taxonomy saved to database with ID: {taxonomy_id}")
+    except Exception as e:
+        st.error(f"Failed to save taxonomy to database: {e}")
 
     return approved, rejected, rejected_info
 
@@ -332,114 +350,191 @@ def main():
     - **Tier-A** (OpenAI API): Generates candidate labels
     - **Tier-B** (OpenAI API): Refines and validates the taxonomy
     
-    Enter your domain and configuration parameters below to start.
+    Use the tabs below to generate a new taxonomy or view previously generated ones.
     """)
-
-    # API Key warnings/status
+    
+    # API Key warnings/status (outside tabs)
     openai_api_key = os.environ.get("OPENAI_API_KEY")
     if openai_api_key:
         st.success("✅ OPENAI_API_KEY found in environment variables")
     else:
         st.error("❌ OPENAI_API_KEY not found. Set it in your environment variables.")
-
-    # Input Form
-    with st.form("taxonomy_config_form"):
-        domain = st.text_input("Domain", help="Enter the domain for which you want to generate a taxonomy (e.g., 'Artificial Intelligence', 'Healthcare Tech')")
-        
-        # Advanced settings expander
-        with st.expander("Advanced Settings"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                tier_a_model = st.selectbox(
-                    "Tier-A Model (OpenAI)", 
-                    options=DEFAULT_TIER_A_OPTIONS,
-                    index=0,
-                    help="Select the OpenAI model for candidate generation"
-                )
-                
-                max_labels = st.number_input(
-                    "Max Labels", 
-                    min_value=5, 
-                    max_value=15, 
-                    value=DEFAULT_MAX_LABELS,
-                    help="Maximum number of labels in the final taxonomy"
-                )
-                
-                deny_list_text = st.text_area(
-                    "Deny List (one term per line)", 
-                    value=DEFAULT_DENY_LIST,
-                    height=100,
-                    help="Terms to exclude from the taxonomy (e.g., Funding, Hiring)"
-                )
-            
-            with col2:
-                tier_b_model = st.selectbox(
-                    "Tier-B Model (OpenAI)", 
-                    options=DEFAULT_TIER_B_OPTIONS,
-                    index=0,
-                    help="Select the OpenAI model for refinement (or None/Offline to skip)"
-                )
-                
-                min_labels = st.number_input(
-                    "Min Labels", 
-                    min_value=3, 
-                    max_value=12, 
-                    value=DEFAULT_MIN_LABELS,
-                    help="Minimum number of labels in the final taxonomy"
-                )
-                
-                out_dir_str = st.text_input(
-                    "Output Directory", 
-                    value=DEFAULT_OUT_DIR,
-                    help="Directory to save the generated taxonomies"
-                )
-        
-        submit_button = st.form_submit_button("Generate Taxonomy")
     
-    # Process form submission
-    if submit_button:
-        if not domain:
-            st.error("Please enter a domain to generate a taxonomy.")
-            return
+    # Create tabs for different sections
+    tab1, tab2 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies"])
+    
+    with tab1:
+        st.header("Generate New Taxonomy")
+        st.markdown("Enter your domain and configuration parameters below to start.")
+
+        # Input Form
+        with st.form("taxonomy_config_form"):
+            domain = st.text_input("Domain", help="Enter the domain for which you want to generate a taxonomy (e.g., 'Artificial Intelligence', 'Healthcare Tech')")
             
-        # Process deny list
-        deny_list = set(line.strip() for line in deny_list_text.split('\n') if line.strip())
-        
-        # Create output directory
-        out_dir = Path(out_dir_str)
-        
-        # Status container for updates
-        status_container = st.empty()
-        
-        with status_container.container():
-            # Generate taxonomy
-            approved, rejected, rejection_reasons = generate_taxonomy(
-                domain=domain,
-                tier_a_model=tier_a_model,
-                tier_b_model=tier_b_model,
-                max_labels=max_labels,
-                min_labels=min_labels,
-                deny_list=deny_list,
-                out_dir=out_dir,
-                openai_api_key=openai_api_key
-            )
+            # Advanced settings expander
+            with st.expander("Advanced Settings"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    tier_a_model = st.selectbox(
+                        "Tier-A Model (OpenAI)", 
+                        options=DEFAULT_TIER_A_OPTIONS,
+                        index=0,
+                        help="Select the OpenAI model for candidate generation"
+                    )
+                    
+                    max_labels = st.number_input(
+                        "Max Labels", 
+                        min_value=5, 
+                        max_value=15, 
+                        value=DEFAULT_MAX_LABELS,
+                        help="Maximum number of labels in the final taxonomy"
+                    )
+                    
+                    deny_list_text = st.text_area(
+                        "Deny List (one term per line)", 
+                        value=DEFAULT_DENY_LIST,
+                        height=100,
+                        help="Terms to exclude from the taxonomy (e.g., Funding, Hiring)"
+                    )
+                
+                with col2:
+                    tier_b_model = st.selectbox(
+                        "Tier-B Model (OpenAI)", 
+                        options=DEFAULT_TIER_B_OPTIONS,
+                        index=0,
+                        help="Select the OpenAI model for refinement (or None/Offline to skip)"
+                    )
+                    
+                    min_labels = st.number_input(
+                        "Min Labels", 
+                        min_value=3, 
+                        max_value=12, 
+                        value=DEFAULT_MIN_LABELS,
+                        help="Minimum number of labels in the final taxonomy"
+                    )
+                    
+                    out_dir_str = st.text_input(
+                        "Output Directory", 
+                        value=DEFAULT_OUT_DIR,
+                        help="Directory to save the generated taxonomies"
+                    )
             
-            if approved:
-                # Display final taxonomy
-                st.subheader(f"Final Taxonomy for '{domain}'")
+            submit_button = st.form_submit_button("Generate Taxonomy")
+        
+        # Process form submission
+        if submit_button:
+            if not domain:
+                st.error("Please enter a domain to generate a taxonomy.")
+                return
                 
-                # Display approved labels
-                st.success(f"✅ {len(approved)} Approved Labels:")
-                for label in approved:
-                    st.write(f"- {label}")
+            # Process deny list
+            deny_list = set(line.strip() for line in deny_list_text.split('\n') if line.strip())
+            
+            # Create output directory
+            out_dir = Path(out_dir_str)
+            
+            # Status container for updates
+            status_container = st.empty()
+            
+            with status_container.container():
+                # Generate taxonomy
+                approved, rejected, rejection_reasons = generate_taxonomy(
+                    domain=domain,
+                    tier_a_model=tier_a_model,
+                    tier_b_model=tier_b_model,
+                    max_labels=max_labels,
+                    min_labels=min_labels,
+                    deny_list=deny_list,
+                    out_dir=out_dir,
+                    openai_api_key=openai_api_key
+                )
                 
-                # Display rejected labels and reasons
-                if rejected and rejection_reasons:
-                    with st.expander(f"⛔ {len(rejected)} Rejected Labels"):
-                        for label in rejected:
-                            reason = rejection_reasons.get(label, "No reason provided")
-                            st.write(f"- **{label}**: {reason}")
+                if approved:
+                    # Display final taxonomy
+                    st.subheader(f"Final Taxonomy for '{domain}'")
+                    
+                    # Display approved labels
+                    st.success(f"✅ {len(approved)} Approved Labels:")
+                    for label in approved:
+                        st.write(f"- {label}")
+                    
+                    # Display rejected labels and reasons
+                    if rejected and rejection_reasons:
+                        with st.expander(f"⛔ {len(rejected)} Rejected Labels"):
+                            for label in rejected:
+                                reason = rejection_reasons.get(label, "No reason provided")
+                                st.write(f"- **{label}**: {reason}")
+    
+    with tab2:
+        st.header("View Previous Taxonomies")
+        st.markdown("Browse and explore previously generated taxonomies.")
+        
+        try:
+            # Fetch all taxonomies from the database
+            taxonomies = db_models.get_taxonomies()
+            
+            if not taxonomies:
+                st.info("No taxonomies found in the database. Generate one in the 'Generate Taxonomy' tab.")
+            else:
+                st.success(f"Found {len(taxonomies)} taxonomies in the database.")
+                
+                # Create a dropdown to select which taxonomy to view
+                taxonomy_options = [f"{t['domain']} ({t['timestamp']})" for t in taxonomies]
+                selected_taxonomy_index = st.selectbox(
+                    "Select a taxonomy to view",
+                    range(len(taxonomy_options)),
+                    format_func=lambda i: taxonomy_options[i]
+                )
+                
+                if selected_taxonomy_index is not None:
+                    selected_taxonomy = taxonomies[selected_taxonomy_index]
+                    
+                    # Display the selected taxonomy details
+                    st.subheader(f"Taxonomy for '{selected_taxonomy['domain']}'")
+                    st.markdown(f"**Generated on:** {selected_taxonomy['timestamp']}")
+                    st.markdown(f"**Tier-A Model:** {selected_taxonomy['tier_a_model']}")
+                    st.markdown(f"**Tier-B Model:** {selected_taxonomy['tier_b_model']}")
+                    
+                    # Display approved labels
+                    st.success(f"✅ {len(selected_taxonomy['approved_labels'])} Approved Labels:")
+                    for label in selected_taxonomy['approved_labels']:
+                        st.write(f"- {label}")
+                    
+                    # Display rejected labels and reasons
+                    if selected_taxonomy['rejected_labels']:
+                        with st.expander(f"⛔ {len(selected_taxonomy['rejected_labels'])} Rejected Labels"):
+                            rejected_labels = selected_taxonomy['rejected_labels']
+                            rejection_reasons = selected_taxonomy.get('rejection_reasons', {})
+                            
+                            for label in rejected_labels:
+                                reason = rejection_reasons.get(label, "No reason provided")
+                                st.write(f"- **{label}**: {reason}")
+                    
+                    # Add options to export/delete
+                    st.markdown("---")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("Export as JSON", key=f"export_{selected_taxonomy['id']}"):
+                            # Create download link for the taxonomy
+                            export_data = json.dumps(selected_taxonomy, indent=2)
+                            st.download_button(
+                                label="Download JSON", 
+                                data=export_data,
+                                file_name=f"{selected_taxonomy['domain'].replace(' ', '_')}.json",
+                                mime="application/json"
+                            )
+                    
+                    with col2:
+                        if st.button("Delete Taxonomy", key=f"delete_{selected_taxonomy['id']}"):
+                            if db_models.delete_taxonomy(selected_taxonomy['id']):
+                                st.success(f"Taxonomy for '{selected_taxonomy['domain']}' deleted successfully.")
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete taxonomy.")
+        except Exception as e:
+            st.error(f"Error accessing taxonomy database: {e}")
             
 
 if __name__ == "__main__":
