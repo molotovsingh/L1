@@ -39,19 +39,22 @@ RETRY_DELAYS = [5, 15, 30, 60]  # Increased exponential backoff in seconds (up t
 # OpenAI models for both tiers
 # The newest OpenAI model is "gpt-4o" which was released May 13, 2024
 DEFAULT_TIER_A_OPTIONS: List[str] = [
-    "gpt-4o",  # Powerful, reliable model
-    "gpt-3.5-turbo",  # Faster, more economical
-    "o3",      # Shorthand for gpt-4o
-    "custom"   # Allow user to specify a custom model
+    "chatgpt-4o-latest",  # Powerful, reliable model (OpenAI's latest model)
+    "gpt-4",              # Reliable model
+    "gpt-3.5-turbo",      # Faster, more economical
+    "o3",                 # Shorthand for chatgpt-4o-latest
+    "o1",                 # Shorthand for gpt-4
+    "custom"              # Allow user to specify a custom model
 ]
 
 DEFAULT_TIER_B_OPTIONS: List[str] = [
-    "gpt-4o",  # Powerful, reliable model
-    "gpt-3.5-turbo",  # Faster, more economical
-    "o3",      # Shorthand for gpt-4o
-    "o1",      # Shorthand for gpt-4 (older model)
-    "custom",  # Allow user to specify a custom model
-    "None/Offline"  # Skip Tier-B processing
+    "chatgpt-4o-latest",  # Powerful, reliable model (OpenAI's latest model)
+    "gpt-4",              # Reliable model
+    "gpt-3.5-turbo",      # Faster, more economical
+    "o3",                 # Shorthand for chatgpt-4o-latest
+    "o1",                 # Shorthand for gpt-4 (older model)
+    "custom",             # Allow user to specify a custom model
+    "None/Offline"        # Skip Tier-B processing
 ]
 DEFAULT_MAX_LABELS: int = 9
 DEFAULT_MIN_LABELS: int = 8

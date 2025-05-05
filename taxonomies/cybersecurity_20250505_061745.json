@@ -1,0 +1,32 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250505_061745",
+  "tier_a_model": "gpt-4o",
+  "tier_b_model": "o1",
+  "max_labels": 9,
+  "min_labels": 8,
+  "deny_list": [
+    "Partnership",
+    "Events",
+    "Hiring",
+    "Funding"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "Ransomware-Attack",
+    "Zero-Day-Exploit",
+    "Phishing-Campaign",
+    "DDoS-Attack",
+    "Malware-Detection",
+    "Security-Patch-Release",
+    "Vulnerability-Disclosure",
+    "Cybersecurity-Law-Enactment",
+    "Encryption-Protocol-Update",
+    "Incident-Response-Initiation",
+    "Cybersecurity-Audit-Failure",
+    "Threat-Intelligence-Report",
+    "Security-Tool-Launch",
+    "Regulatory-Compliance-Breach"
+  ],
+  "rejected_labels": {}
+}
