@@ -15,10 +15,13 @@ model_fullname = model_mapper.map_model_name(model_shorthand)
 print(f"Using model: {model_shorthand} → mapped to: {model_fullname}")
 
 # 2.  Make a single chat completion
+# Try a system message with a very simple prompt
+print("Attempting with a system message and simple prompt...")
 response = client.chat.completions.create(
     model=model_fullname,  # Use the mapped model name
     messages=[
-        {"role": "user", "content": "In one sentence, explain why the sky appears blue."}
+        {"role": "system", "content": "You are a helpful assistant. Keep responses brief and to the point."},
+        {"role": "user", "content": "Hello, what's 2+2?"}
     ],
     max_completion_tokens=50,  # o-series models use max_completion_tokens instead of max_tokens
     stream=False            # flip to True if you want chunk-by-chunk streaming

@@ -71,7 +71,24 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # ----- Core Taxonomy Generation Logic -----
 def generate_taxonomy(domain: str, tier_a_model: str, tier_b_model: str, max_labels: int, min_labels: int, 
                       deny_list: set, out_dir: Path, openai_api_key: Optional[str]):
-    """The main function to generate and validate the taxonomy using APIs."""
+    """
+    The main function to generate and validate the taxonomy using APIs.
+    
+    Note on o-series models (o1, o3, etc.):
+    These models require special access permissions to return content. In many cases,
+    they may return empty responses even though the API call succeeds. If you encounter
+    empty responses, consider using standard GPT models like gpt-4o or gpt-3.5-turbo.
+    """
+    # Check for o-series models and display warning
+    o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
+    if tier_a_model in o_series_models or tier_b_model in o_series_models:
+        st.warning("""
+        ⚠️ **Note about o-series models**: 
+        
+        The o-series models (o1, o3, etc.) may return empty responses depending on account permissions
+        even though the API call succeeds. If you encounter errors, consider using standard models
+        like gpt-4o, gpt-4, or gpt-3.5-turbo instead.
+        """)
     
     if not domain:
         st.error("Domain input cannot be empty.")
@@ -318,7 +335,7 @@ def main():
                         "Tier-A Model (OpenAI)", 
                         options=DEFAULT_TIER_A_OPTIONS,
                         index=0,
-                        help="Select the OpenAI model for candidate generation"
+                        help="Select the OpenAI model for candidate generation. Note: o-series models (o1, o3) may return empty responses depending on account permissions. GPT-4o or GPT-3.5-turbo are recommended."
                     )
                     
                     # If custom is selected, show an input field for custom model name
@@ -352,7 +369,7 @@ def main():
                         "Tier-B Model (OpenAI)", 
                         options=DEFAULT_TIER_B_OPTIONS,
                         index=0,
-                        help="Select the OpenAI model for refinement (or None/Offline to skip)"
+                        help="Select the OpenAI model for refinement (or None/Offline to skip). Note: o-series models (o1, o3) may return empty responses depending on account permissions. GPT-4o or GPT-3.5-turbo are recommended."
                     )
                     
                     # If custom is selected, show an input field for custom model name
