@@ -86,7 +86,23 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                 st.error("Tier-A (OpenAI) API returned an empty response.")
                 return None
                 
-        except OpenAI_RateLimitError:
+        except OpenAI_RateLimitError as e:
+            error_msg = str(e).lower()
+            if "insufficient_quota" in error_msg or "quota" in error_msg:
+                st.error("OpenAI API Error: Account quota exceeded")
+                st.warning("⚠️ **OpenAI API Quota Exhausted**")
+                st.info("""
+                Your OpenAI API key has exceeded its quota limit.
+                
+                **Recommended solutions:**
+                1. Check your billing details at OpenAI.com
+                2. Update your payment method if needed
+                3. Consider upgrading your OpenAI API plan
+                4. Or use a different API key with available quota
+                """)
+                return None
+                
+            # Regular rate limiting (too many requests in short time)
             if attempt < max_retries:
                 delay = retry_delays[attempt]
                 st.warning(f"⚠️ Tier-A API rate limit hit. Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
@@ -175,7 +191,23 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                 st.error("Tier-B (OpenAI) API returned an empty response.")
                 return None
                 
-        except OpenAI_RateLimitError:
+        except OpenAI_RateLimitError as e:
+            error_msg = str(e).lower()
+            if "insufficient_quota" in error_msg or "quota" in error_msg:
+                st.error("OpenAI API Error: Account quota exceeded")
+                st.warning("⚠️ **OpenAI API Quota Exhausted**")
+                st.info("""
+                Your OpenAI API key has exceeded its quota limit.
+                
+                **Recommended solutions:**
+                1. Check your billing details at OpenAI.com
+                2. Update your payment method if needed
+                3. Consider upgrading your OpenAI API plan
+                4. Or use a different API key with available quota
+                """)
+                return None
+                
+            # Regular rate limiting (too many requests in short time)
             if attempt < max_retries:
                 delay = retry_delays[attempt]
                 st.warning(f"⚠️ Tier-B API rate limit hit. Waiting {delay} seconds before retry {attempt+1}/{max_retries}...")
