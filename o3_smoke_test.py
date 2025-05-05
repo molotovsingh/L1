@@ -20,7 +20,7 @@ response = client.chat.completions.create(
     messages=[
         {"role": "user", "content": "In one sentence, explain what causes a rainbow."}
     ],
-    max_tokens=50,
+    max_completion_tokens=50,  # o-series models use max_completion_tokens instead of max_tokens
     stream=False            # flip to True if you want chunk-by-chunk streaming
 )
 

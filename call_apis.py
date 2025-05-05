@@ -60,14 +60,59 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             
             # Make the API call with the adjusted parameters
             response = client.chat.completions.create(**params)
-            content = response.choices[0].message.content
-            if content:
-                if attempt > 0:
-                    st.success(f"Successfully retrieved response after {attempt} retries.")
-                return content.strip()
-            else:
-                st.error("Tier-A (OpenAI) API returned an empty response.")
-                return None
+            
+            # Debug response for o-series models
+            if is_o_series:
+                st.info(f"Debug - o-series API response details:")
+                st.info(f"- Model: {model_name}")
+                st.info(f"- Response object type: {type(response)}")
+                st.info(f"- Choices available: {len(response.choices)}")
+                
+                if len(response.choices) > 0:
+                    msg = response.choices[0].message
+                    st.info(f"- Message role: {msg.role}")
+                    st.info(f"- Content length: {len(msg.content) if msg.content else 0}")
+                    if not msg.content:
+                        st.info("- Content is empty or None")
+                    elif len(msg.content) < 100:
+                        st.info(f"- Content preview: {msg.content}")
+                    else:
+                        st.info(f"- Content preview: {msg.content[:100]}...")
+            
+            # Process response normally
+            if len(response.choices) > 0:
+                content = response.choices[0].message.content
+                if content:
+                    if attempt > 0:
+                        st.success(f"Successfully retrieved response after {attempt} retries.")
+                    return content.strip()
+            
+            # For o-series models, if we get empty response, try a fallback approach
+            if is_o_series:
+                st.warning("Received empty response from o-series model, trying fallback approach...")
+                # Simplify the prompt for o-series models
+                simpler_prompt = "Generate a list of important taxonomy labels for the domain. Just list the labels directly."
+                fallback_params = {
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant. Keep your response simple and direct."},
+                        {"role": "user", "content": simpler_prompt}
+                    ],
+                    "max_completion_tokens": params.get("max_completion_tokens", 512)
+                }
+                
+                try:
+                    fallback_response = client.chat.completions.create(**fallback_params)
+                    if len(fallback_response.choices) > 0 and fallback_response.choices[0].message.content:
+                        fallback_content = fallback_response.choices[0].message.content
+                        st.success("Got response with fallback approach!")
+                        return fallback_content.strip()
+                except Exception as fallback_e:
+                    st.error(f"Fallback approach also failed: {fallback_e}")
+            
+            # If we reached here, we couldn't get a valid response
+            st.error("Tier-A (OpenAI) API returned an empty response.")
+            return None
                 
         except OpenAI_RateLimitError as e:
             error_msg = str(e).lower()
@@ -192,14 +237,62 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             
             # Make the API call with the adjusted parameters
             response = client.chat.completions.create(**params)
-            content = response.choices[0].message.content
-            if content:
-                if attempt > 0:
-                    st.success(f"Successfully retrieved response after {attempt} retries.")
-                return content.strip()
-            else:
-                st.error("Tier-B (OpenAI) API returned an empty response.")
-                return None
+            
+            # Debug response for o-series models
+            if is_o_series:
+                st.info(f"Debug - o-series API response details (Tier-B):")
+                st.info(f"- Model: {model_name}")
+                st.info(f"- Response object type: {type(response)}")
+                st.info(f"- Choices available: {len(response.choices)}")
+                
+                if len(response.choices) > 0:
+                    msg = response.choices[0].message
+                    st.info(f"- Message role: {msg.role}")
+                    st.info(f"- Content length: {len(msg.content) if msg.content else 0}")
+                    if not msg.content:
+                        st.info("- Content is empty or None")
+                    elif len(msg.content) < 100:
+                        st.info(f"- Content preview: {msg.content}")
+                    else:
+                        st.info(f"- Content preview: {msg.content[:100]}...")
+            
+            # Process response normally
+            if len(response.choices) > 0:
+                content = response.choices[0].message.content
+                if content:
+                    if attempt > 0:
+                        st.success(f"Successfully retrieved response after {attempt} retries.")
+                    return content.strip()
+            
+            # For o-series models, if we get empty response, try a fallback approach
+            if is_o_series:
+                st.warning("Received empty response from o-series model (Tier-B), trying fallback approach...")
+                # Simplify the prompt for o-series models
+                fallback_prompt = prompt
+                if "JSON" in prompt:
+                    fallback_prompt += "\n\nIf you have any difficulty producing valid JSON, just respond with your recommendations in a simple list format."
+                    
+                fallback_params = {
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant. Keep your response simple and direct."},
+                        {"role": "user", "content": fallback_prompt}
+                    ],
+                    "max_completion_tokens": params.get("max_completion_tokens", 512)
+                }
+                
+                try:
+                    fallback_response = client.chat.completions.create(**fallback_params)
+                    if len(fallback_response.choices) > 0 and fallback_response.choices[0].message.content:
+                        fallback_content = fallback_response.choices[0].message.content
+                        st.success("Got response with fallback approach!")
+                        return fallback_content.strip()
+                except Exception as fallback_e:
+                    st.error(f"Fallback approach also failed: {fallback_e}")
+            
+            # If we reached here, we couldn't get a valid response
+            st.error("Tier-B (OpenAI) API returned an empty response.")
+            return None
                 
         except OpenAI_RateLimitError as e:
             error_msg = str(e).lower()
