@@ -324,28 +324,18 @@ def main():
     st.title("🔍 Interactive Domain Taxonomy Discovery")
     st.markdown("""
     This app helps you generate taxonomies for any domain using a two-tier approach:
-    - **Tier-A** (Perplexity API): Generates candidate labels
+    - **Tier-A** (OpenAI API): Generates candidate labels
     - **Tier-B** (OpenAI API): Refines and validates the taxonomy
     
     Enter your domain and configuration parameters below to start.
     """)
 
     # API Key warnings/status
-    api_key_col1, api_key_col2 = st.columns(2)
-    
-    with api_key_col1:
-        perplexity_api_key = os.environ.get("PERPLEXITY_API_KEY")
-        if perplexity_api_key:
-            st.success("✅ PERPLEXITY_API_KEY found in environment variables")
-        else:
-            st.error("❌ PERPLEXITY_API_KEY not found. Set it in your environment variables.")
-    
-    with api_key_col2:
-        openai_api_key = os.environ.get("OPENAI_API_KEY")
-        if openai_api_key:
-            st.success("✅ OPENAI_API_KEY found in environment variables")
-        else:
-            st.warning("⚠️ OPENAI_API_KEY not found. You can still use Tier-A only with Perplexity API.")
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    if openai_api_key:
+        st.success("✅ OPENAI_API_KEY found in environment variables")
+    else:
+        st.error("❌ OPENAI_API_KEY not found. Set it in your environment variables.")
 
     # Input Form
     with st.form("taxonomy_config_form"):
@@ -357,10 +347,10 @@ def main():
             
             with col1:
                 tier_a_model = st.selectbox(
-                    "Tier-A Model (Perplexity)", 
+                    "Tier-A Model (OpenAI)", 
                     options=DEFAULT_TIER_A_OPTIONS,
                     index=0,
-                    help="Select the Perplexity model for candidate generation"
+                    help="Select the OpenAI model for candidate generation"
                 )
                 
                 max_labels = st.number_input(
@@ -427,7 +417,6 @@ def main():
                 min_labels=min_labels,
                 deny_list=deny_list,
                 out_dir=out_dir,
-                perplexity_api_key=perplexity_api_key,
                 openai_api_key=openai_api_key
             )
             
