@@ -15,24 +15,31 @@ client = OpenAI(api_key=API_KEY)
 
 # Main model families to check
 MAIN_MODELS = [
-    # GPT-4 family
+    # GPT-4 Series: multimodal flagship models
     "gpt-4", 
     "gpt-4-turbo",
     "gpt-4o",
     "gpt-4o-mini",
-    # GPT-3.5 family
+    
+    # o-Series: reasoning-focused models (separate model family)
+    "o1",  # Reasoning-optimized model (NOT a nickname for gpt-4)
+    "o3",  # Newer reasoning model, succeeding o1 (NOT a nickname for gpt-4o)
+    "o4-mini",  # Mini version in the o-series
+    
+    # GPT-3.5 Series
     "gpt-3.5-turbo",
-    # Alternative names
-    "o1",  # Nickname for gpt-4
-    "o3",  # Nickname for gpt-4o
-    "chatgpt-4o-latest"
+    
+    # Alias endpoints
+    "chatgpt-4o-latest"  # Convenience ID that tracks the latest 4o build
 ]
 
 def check_model(model_name):
     """Try a simple request to check if the model is available"""
     try:
-        # For o1 and o3 shorthand models, use max_completion_tokens instead
-        if model_name in ["o1", "o3"]:
+        # For o-series models, use max_completion_tokens instead of max_tokens
+        o_series_models = ["o1", "o3", "o4-mini", "o1-mini", "o3-mini", "o1-preview", "o1-pro"]
+        
+        if model_name in o_series_models:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": "Hello"}],
@@ -80,13 +87,17 @@ def main():
     
     # Print recommended models
     print("\nRecommended models to use:")
-    for family, models in [
-        ("GPT-4 Series", ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-4-turbo"]),
-        ("GPT-3.5 Series", ["gpt-3.5-turbo"])
+    for family, models, description in [
+        ("GPT-4 Series", ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-4-turbo"], 
+         "Best for general use and multimodal capabilities"),
+        ("o-Series", ["o3", "o1", "o4-mini", "o1-mini", "o3-mini"], 
+         "Specialized for reasoning, coding, math and logic tasks"),
+        ("GPT-3.5 Series", ["gpt-3.5-turbo"], 
+         "Cost-effective for simpler tasks")
     ]:
         available = [m for m in models if m in [r[0] for r in results if r[1]]]
         if available:
-            print(f"  {family}: {available[0]} (best), {', '.join(available[1:])}")
+            print(f"  {family}: {available[0]} (best), {', '.join(available[1:])} - {description}")
 
 if __name__ == "__main__":
     main()
