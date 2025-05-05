@@ -31,12 +31,19 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             else:
                 st.info(f"🔹 Calling Tier-A (OpenAI) model ({model_name})...")
                 
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=512,  # Generous buffer for JSON list
-            )
+            # Prepare parameters based on model
+            params = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.0,
+                "max_tokens": 512,  # Generous buffer for JSON list
+            }
+            
+            # Apply model-specific parameter adjustments
+            params = model_mapper.get_model_params(model_name, params)
+            
+            # Make the API call with the adjusted parameters
+            response = client.chat.completions.create(**params)
             content = response.choices[0].message.content
             if content:
                 if attempt > 0:
@@ -135,13 +142,20 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
             else:
                 st.info(f"🔹 Calling Tier‑B (OpenAI) model ({model_name})...")
                 
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=512,
-                response_format={"type": "json_object"}  # Request JSON
-            )
+            # Prepare parameters based on model
+            params = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.0,
+                "max_tokens": 512,
+                "response_format": {"type": "json_object"}  # Request JSON
+            }
+            
+            # Apply model-specific parameter adjustments
+            params = model_mapper.get_model_params(model_name, params)
+            
+            # Make the API call with the adjusted parameters
+            response = client.chat.completions.create(**params)
             content = response.choices[0].message.content
             if content:
                 if attempt > 0:
