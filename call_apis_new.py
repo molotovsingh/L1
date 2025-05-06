@@ -123,11 +123,16 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 }
                 
                 try:
+                    # Record fallback timestamp
+                    fallback_timestamp = datetime.now()
                     fallback_response = client.chat.completions.create(**fallback_params)
                     if len(fallback_response.choices) > 0 and fallback_response.choices[0].message.content:
                         fallback_content = fallback_response.choices[0].message.content
                         st.success("Got response with fallback approach!")
-                        return fallback_content.strip()
+                        # Preserve raw content for database storage
+                        processed_content = fallback_content.strip()
+                        raw_content = fallback_content
+                        return processed_content, raw_content, fallback_timestamp
                 except Exception as fallback_e:
                     st.error(f"Fallback approach also failed: {fallback_e}")
             
@@ -144,7 +149,7 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 1. Use standard GPT models like `gpt-4o` or `gpt-3.5-turbo` instead
                 2. Check the "Model Info" tab for detailed information about model capabilities
                 """)
-            return None
+            return None, None, None
                 
         except OpenAI_RateLimitError as e:
             error_msg = str(e).lower()
@@ -160,7 +165,7 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 3. Consider upgrading your OpenAI API plan
                 4. Or use a different API key with available quota
                 """)
-                return None
+                return None, None, None
                 
             # Regular rate limiting (too many requests in short time)
             if attempt < max_retries:
@@ -179,11 +184,11 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 2. Try using a different model (gpt-3.5-turbo has higher rate limits)
                 3. If the problem persists, you may need to wait up to an hour for quota reset
                 """)
-                return None
+                return None, None, None
                 
         except OpenAI_AuthError:
             st.error("Tier-A API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
-            return None
+            return None, None, None
             
         except OpenAI_ConnError:
             if attempt < max_retries:
@@ -193,7 +198,7 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                     time.sleep(delay)
             else:
                 st.error("Tier-A API Error (OpenAI): Could not connect to OpenAI API after maximum retries.")
-                return None
+                return None, None, None
                 
         except OpenAI_APIError as e:
             if attempt < max_retries and ("502" in str(e) or "503" in str(e) or "504" in str(e)):
@@ -203,11 +208,11 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                     time.sleep(delay)
             else:
                 st.error(f"Tier-A API Error (OpenAI): {e}")
-                return None
+                return None, None, None
                 
         except Exception as e:
             st.error(f"An unexpected error occurred during Tier-A (OpenAI) call: {e}")
-            return None
+            return None, None, None
 
 
 def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Tuple[Optional[str], Optional[str], Optional[datetime]]:
@@ -334,11 +339,17 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 }
                 
                 try:
+                    # Record fallback timestamp for tier-B
+                    fallback_timestamp = datetime.now()
+                    
                     fallback_response = client.chat.completions.create(**fallback_params)
                     if len(fallback_response.choices) > 0 and fallback_response.choices[0].message.content:
                         fallback_content = fallback_response.choices[0].message.content
                         st.success("Got response with fallback approach!")
-                        return fallback_content.strip()
+                        # Preserve raw content for database storage
+                        processed_content = fallback_content.strip()
+                        raw_content = fallback_content
+                        return processed_content, raw_content, fallback_timestamp
                 except Exception as fallback_e:
                     st.error(f"Fallback approach also failed: {fallback_e}")
             
@@ -355,7 +366,7 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 1. Use standard GPT models like `gpt-4o` or `gpt-3.5-turbo` instead
                 2. Check the "Model Info" tab for detailed information about model capabilities
                 """)
-            return None
+            return None, None, None
                 
         except OpenAI_RateLimitError as e:
             error_msg = str(e).lower()
@@ -371,7 +382,7 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 3. Consider upgrading your OpenAI API plan
                 4. Or use a different API key with available quota
                 """)
-                return None
+                return None, None, None
                 
             # Regular rate limiting (too many requests in short time)
             if attempt < max_retries:
@@ -390,11 +401,11 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                 2. Try using a different model (gpt-3.5-turbo has higher rate limits)
                 3. If the problem persists, you may need to wait up to an hour for quota reset
                 """)
-                return None
+                return None, None, None
                 
         except OpenAI_AuthError:
             st.error("Tier-B API Error (OpenAI): Authentication failed. Check your OPENAI_API_KEY.")
-            return None
+            return None, None, None
             
         except OpenAI_ConnError:
             if attempt < max_retries:
@@ -404,7 +415,7 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                     time.sleep(delay)
             else:
                 st.error("Tier-B API Error (OpenAI): Could not connect to OpenAI API after maximum retries.")
-                return None
+                return None, None, None
                 
         except OpenAI_APIError as e:
             if attempt < max_retries and ("502" in str(e) or "503" in str(e) or "504" in str(e)):
@@ -414,8 +425,8 @@ def call_openai_api(prompt: str, api_key: Optional[str], model_name: str) -> Tup
                     time.sleep(delay)
             else:
                 st.error(f"Tier-B API Error (OpenAI): {e}")
-                return None
+                return None, None, None
                 
         except Exception as e:
             st.error(f"An unexpected error occurred during Tier-B (OpenAI) call: {e}")
-            return None
+            return None, None, None
