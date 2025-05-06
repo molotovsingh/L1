@@ -47,6 +47,10 @@ class Taxonomy(Base):
     tier_a_timestamp = Column(DateTime)  # When Tier-A API was called
     tier_b_timestamp = Column(DateTime)  # When Tier-B API was called
     
+    # Custom prompt references
+    tier_a_prompt_id = Column(Integer)  # ID of the Tier-A custom prompt used (if any)
+    tier_b_prompt_id = Column(Integer)  # ID of the Tier-B custom prompt used (if any)
+    
     # Relationships
     approved_labels = relationship("ApprovedLabel", back_populates="taxonomy", cascade="all, delete-orphan")
     rejected_labels = relationship("RejectedLabel", back_populates="taxonomy", cascade="all, delete-orphan")
@@ -73,7 +77,9 @@ class Taxonomy(Base):
             "tier_a_raw_output": self.tier_a_raw_output if self.tier_a_raw_output else None,
             "tier_b_raw_output": self.tier_b_raw_output if self.tier_b_raw_output else None,
             "tier_a_timestamp": self.tier_a_timestamp.strftime("%Y-%m-%d %H:%M:%S") if self.tier_a_timestamp else None,
-            "tier_b_timestamp": self.tier_b_timestamp.strftime("%Y-%m-%d %H:%M:%S") if self.tier_b_timestamp else None
+            "tier_b_timestamp": self.tier_b_timestamp.strftime("%Y-%m-%d %H:%M:%S") if self.tier_b_timestamp else None,
+            "tier_a_prompt_id": self.tier_a_prompt_id,
+            "tier_b_prompt_id": self.tier_b_prompt_id
         }
 
 
@@ -139,7 +145,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, deny_list, 
                    approved_labels, rejected_labels, rejection_reasons, api_provider="OpenAI",
                    tier_a_raw_output=None, tier_b_raw_output=None, 
-                   tier_a_timestamp=None, tier_b_timestamp=None):
+                   tier_a_timestamp=None, tier_b_timestamp=None,
+                   tier_a_prompt_id=None, tier_b_prompt_id=None):
     """
     Create a new taxonomy in the database.
     
@@ -158,6 +165,8 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
         tier_b_raw_output (str): Raw output from the Tier-B model
         tier_a_timestamp (datetime): When the Tier-A API was called
         tier_b_timestamp (datetime): When the Tier-B API was called
+        tier_a_prompt_id (int, optional): ID of the custom prompt used for Tier-A
+        tier_b_prompt_id (int, optional): ID of the custom prompt used for Tier-B
         
     Returns:
         int: The ID of the created taxonomy or None if there was an error

@@ -150,8 +150,31 @@ def generate_taxonomy(domain: str, tier_a_model: str, tier_b_model: str, max_lab
     out_dir.mkdir(exist_ok=True)
 
     # ----- Tier‑A candidate generation -----
-    if api_provider == "OpenAI":
-        prompt_A = f"""
+    # Handle custom prompts for Tier-A if selected
+    if use_custom_prompts and tier_a_prompt_id:
+        try:
+            # Get the selected custom prompt
+            tier_a_prompt_data = db_models.get_custom_prompt(tier_a_prompt_id)
+            if tier_a_prompt_data:
+                # Replace template variables in the custom prompt
+                prompt_A = tier_a_prompt_data["content"]
+                prompt_A = prompt_A.replace("{{domain}}", domain)
+                prompt_A = prompt_A.replace("{{max_labels}}", str(max_labels))
+                prompt_A = prompt_A.replace("{{min_labels}}", str(min_labels))
+                prompt_A = prompt_A.replace("{{deny_list}}", ", ".join(deny_list))
+                
+                st.info(f"🔹 Using custom Tier-A prompt: {tier_a_prompt_data['name']}")
+            else:
+                st.warning(f"Custom Tier-A prompt (ID: {tier_a_prompt_id}) not found. Using default prompt.")
+                use_custom_prompts = False  # Fall back to default
+        except Exception as e:
+            st.error(f"Error loading custom Tier-A prompt: {e}")
+            use_custom_prompts = False  # Fall back to default
+    
+    # Use default prompts if not using custom ones
+    if not use_custom_prompts or not tier_a_prompt_id:
+        if api_provider == "OpenAI":
+            prompt_A = f"""
 You are a domain taxonomy generator specializing in discrete events.
 
 Domain: {domain}
@@ -168,26 +191,23 @@ Rules for Labels:
 
 Generate the JSON array now.
 """
-
-        st.info(f"🔹 Generating Tier‑A candidates via {api_provider} API...")
-        with st.spinner(f"Waiting for {api_provider} API response for generation..."):
-            candidates: List[str] = []
+        else:  # Perplexity
+            # Create prompt for Perplexity
+            prompt_A = call_perplexity_api.create_taxonomy_prompt(domain, max_labels, min_labels, deny_list)
+    
+    # Now call the appropriate API with the selected/custom prompt
+    st.info(f"🔹 Generating Tier‑A candidates via {api_provider} API...")
+    with st.spinner(f"Waiting for {api_provider} API response for generation..."):
+        candidates: List[str] = []
+        if api_provider == "OpenAI":
             # Now returns tuple of (processed_content, raw_content, timestamp)
             resp_A_processed, resp_A_raw, tier_a_timestamp = call_apis.call_tier_a_api(prompt_A, openai_api_key, tier_a_model)
-            resp_A = resp_A_processed  # Use the processed content for compatibility with existing code
-            
-    else:  # Perplexity
-        # Create prompt for Perplexity
-        prompt_A = call_perplexity_api.create_taxonomy_prompt(domain, max_labels, min_labels, deny_list)
-        
-        st.info(f"🔹 Generating Tier‑A candidates via {api_provider} API...")
-        with st.spinner(f"Waiting for {api_provider} API response for generation..."):
-            candidates: List[str] = []
+        else:  # Perplexity
             # Now returns tuple of (processed_content, raw_content, timestamp)
             resp_A_processed, resp_A_raw, tier_a_timestamp = call_perplexity_api.call_perplexity_api_tier_a(
                 prompt_A, perplexity_api_key, tier_a_model
             )
-            resp_A = resp_A_processed  # Use the processed content for compatibility with existing code
+        resp_A = resp_A_processed  # Use the processed content for compatibility with existing code
 
     if resp_A:
         # Display raw response in expander
@@ -266,8 +286,32 @@ Generate the JSON array now.
     tier_b_selected_model = tier_b_model
 
     if tier_b_selected_model.lower() != "none/offline":
-        if api_provider == "OpenAI":
-            prompt_B = f"""
+        # Handle custom prompts for Tier-B if selected
+        if use_custom_prompts and tier_b_prompt_id:
+            try:
+                # Get the selected custom prompt
+                tier_b_prompt_data = db_models.get_custom_prompt(tier_b_prompt_id)
+                if tier_b_prompt_data:
+                    # Replace template variables in the custom prompt
+                    prompt_B = tier_b_prompt_data["content"]
+                    prompt_B = prompt_B.replace("{{domain}}", domain)
+                    prompt_B = prompt_B.replace("{{candidates_json}}", json.dumps(candidates))
+                    prompt_B = prompt_B.replace("{{max_labels}}", str(max_labels))
+                    prompt_B = prompt_B.replace("{{min_labels}}", str(min_labels))
+                    prompt_B = prompt_B.replace("{{deny_list}}", ", ".join(deny_list))
+                    
+                    st.info(f"🔹 Using custom Tier-B prompt: {tier_b_prompt_data['name']}")
+                else:
+                    st.warning(f"Custom Tier-B prompt (ID: {tier_b_prompt_id}) not found. Using default prompt.")
+                    use_custom_prompts = False  # Fall back to default
+            except Exception as e:
+                st.error(f"Error loading custom Tier-B prompt: {e}")
+                use_custom_prompts = False  # Fall back to default
+        
+        # Use default prompts if not using custom ones
+        if not use_custom_prompts or not tier_b_prompt_id:
+            if api_provider == "OpenAI":
+                prompt_B = f"""
 You are a meticulous taxonomy auditor enforcing specific principles.
 
 Candidate Event Labels for Domain '{domain}':
@@ -280,7 +324,7 @@ Principles to Enforce:
 1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states (e.g., "Machine Learning", "Cloud Infrastructure").
 2. Formatting: Ensure labels are 1–4 words, TitleCase. Hyphens are allowed ONLY between words (e.g., "Data-Breach" is okay, "AI-Powered" as an event type might be questionable unless it refers to a specific *launch* event). No leading symbols like '#'.
 3. Deny List: Reject any label containing the exact terms: {', '.join(deny_list)}.
-4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {max_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
+4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {min_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
 5. Output Structure: Return ONLY a JSON object with the following keys:
    - "approved": A JSON array of strings containing the final, approved labels.
    - "rejected": A JSON array of strings containing the labels that were rejected or merged away.
@@ -299,6 +343,15 @@ Example Output Format:
 
 Return only the JSON object now.
 """
+            else:  # Perplexity
+                # Create prompt for Perplexity - pass model name to determine output format
+                prompt_B = call_perplexity_api.create_taxonomy_audit_prompt(
+                    domain, candidates, max_labels, min_labels, deny_list, model_name=tier_b_selected_model
+                )
+        
+        # Now call the appropriate API with the selected/custom prompt
+        st.info(f"🔹 Refining taxonomy via {api_provider} API...")
+        if api_provider == "OpenAI":
             with st.spinner(f"Waiting for {api_provider} API response for refinement..."):
                 # Now returns tuple of (processed_content, raw_content, timestamp)
                 audit_response_processed, audit_response_raw, tier_b_timestamp = call_apis.call_openai_api(
@@ -307,11 +360,6 @@ Return only the JSON object now.
                 audit_response_str = audit_response_processed  # Use processed content for compatibility
                 
         else:  # Perplexity
-            # Create prompt for Perplexity - pass model name to determine output format
-            prompt_B = call_perplexity_api.create_taxonomy_audit_prompt(
-                domain, candidates, max_labels, min_labels, deny_list, model_name=tier_b_selected_model
-            )
-            
             with st.spinner(f"Waiting for {api_provider} API response for refinement..."):
                 # Now returns tuple of (processed_content, raw_content, timestamp)
                 audit_response_processed, audit_response_raw, tier_b_timestamp = call_perplexity_api.call_perplexity_api_tier_b(
@@ -807,6 +855,11 @@ def main():
                 # Use the api_provider from hidden field (matches what was selected when form was populated)
                 form_api_provider = api_provider_hidden
                 
+                # Check for custom prompts from hidden fields
+                use_custom_prompts = st.session_state.get("use_custom_prompts_hidden", "").lower() == "true"
+                tier_a_prompt_id = st.session_state.get("tier_a_prompt_id_hidden", "")
+                tier_b_prompt_id = st.session_state.get("tier_b_prompt_id_hidden", "")
+                
                 # Generate taxonomy based on selected API provider
                 approved, rejected, rejection_reasons = generate_taxonomy(
                     domain=domain,
@@ -818,7 +871,10 @@ def main():
                     out_dir=out_dir,
                     api_provider=form_api_provider,
                     openai_api_key=openai_api_key,
-                    perplexity_api_key=perplexity_api_key
+                    perplexity_api_key=perplexity_api_key,
+                    tier_a_prompt_id=tier_a_prompt_id if tier_a_prompt_id else None,
+                    tier_b_prompt_id=tier_b_prompt_id if tier_b_prompt_id else None,
+                    use_custom_prompts=use_custom_prompts
                 )
                 
                 if approved:

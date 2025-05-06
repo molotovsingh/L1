@@ -1,100 +1,79 @@
+#!/usr/bin/env python3
 """
-Update database schema to add raw output and timestamp columns to taxonomies table
+Update Database Schema v2 - Add Custom Prompt Fields to Taxonomy Table
+
+This script adds tier_a_prompt_id and tier_b_prompt_id columns to the taxonomies table
+to store references to custom prompts used for generation.
+
+Run this script to update the database schema.
 """
 
 import os
-import logging
-import sqlalchemy as sa
+import sys
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.sql import table, column
+from sqlalchemy import Integer, String, Text, DateTime, MetaData, Table, Column
+import sqlalchemy.exc
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+def update_schema():
+    """Update the database schema to add custom prompt ID fields."""
+    
+    # Get database URL
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        print("ERROR: DATABASE_URL environment variable is not set")
+        return False
+    
+    # Create engine
+    try:
+        engine = create_engine(db_url)
+        conn = engine.connect()
+    except Exception as e:
+        print(f"ERROR: Could not connect to database: {e}")
+        return False
+    
+    try:
+        # Define the new columns we need to add
+        metadata = MetaData()
+        taxonomy_table = Table('taxonomies', metadata, autoload_with=engine)
+        
+        # Check if the columns already exist
+        existing_columns = [c.name for c in taxonomy_table.columns]
+        
+        # Add tier_a_prompt_id column if it doesn't exist
+        if 'tier_a_prompt_id' not in existing_columns:
+            conn.execute(text(
+                "ALTER TABLE taxonomies ADD COLUMN tier_a_prompt_id INTEGER"
+            ))
+            print("Added tier_a_prompt_id column to taxonomies table")
 
-# Get database URL
-DATABASE_URL = os.environ.get("DATABASE_URL")
+        # Add tier_b_prompt_id column if it doesn't exist
+        if 'tier_b_prompt_id' not in existing_columns:
+            conn.execute(text(
+                "ALTER TABLE taxonomies ADD COLUMN tier_b_prompt_id INTEGER"
+            ))
+            print("Added tier_b_prompt_id column to taxonomies table")
+        
+        # Commit changes
+        conn.commit()
+        print("Schema update v2 completed successfully")
+        return True
+        
+    except Exception as e:
+        print(f"ERROR: Failed to update schema: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
-if not DATABASE_URL:
-    logger.error("DATABASE_URL environment variable not set")
-    exit(1)
-
-def update_taxonomy_schema():
-    """Add raw output and timestamp columns to taxonomies table if they don't exist"""
-    # Connect to database
-    engine = create_engine(DATABASE_URL)
-    
-    # Create a new connection for each operation to avoid transaction issues
-    def run_with_new_connection(sql, description):
-        try:
-            with engine.begin() as conn:
-                conn.execute(text(sql))
-                logger.info(f"Successfully {description}")
-                return True
-        except Exception as e:
-            logger.error(f"Error {description}: {e}")
-            return False
-    
-    # Define new columns to add
-    columns_to_add = [
-        {
-            "name": "tier_a_raw_output",
-            "type": "TEXT",
-            "description": "raw output from Tier-A model"
-        },
-        {
-            "name": "tier_b_raw_output",
-            "type": "TEXT",
-            "description": "raw output from Tier-B model"
-        },
-        {
-            "name": "tier_a_timestamp",
-            "type": "TIMESTAMP",
-            "default": "NULL",
-            "description": "timestamp of Tier-A API call"
-        },
-        {
-            "name": "tier_b_timestamp",
-            "type": "TIMESTAMP",
-            "default": "NULL",
-            "description": "timestamp of Tier-B API call"
-        }
-    ]
-    
-    # Check and add each column
-    for column in columns_to_add:
-        try:
-            with engine.connect() as conn:
-                # Check if column exists
-                result = conn.execute(text(f"""
-                    SELECT column_name FROM information_schema.columns 
-                    WHERE table_name = 'taxonomies' AND column_name = '{column["name"]}'
-                """))
-                if result.fetchone():
-                    logger.info(f"{column['name']} column already exists")
-                else:
-                    # Column doesn't exist, add it
-                    logger.info(f"{column['name']} column does not exist, adding it now")
-                    
-                    # Build ALTER TABLE statement
-                    default_clause = f"DEFAULT {column['default']}" if "default" in column else ""
-                    alter_sql = f"""
-                    ALTER TABLE taxonomies 
-                    ADD COLUMN {column["name"]} {column["type"]} {default_clause}
-                    """
-                    
-                    # Execute the ALTER TABLE statement
-                    success = run_with_new_connection(alter_sql, f"added {column['name']} column to taxonomies table")
-                    if not success:
-                        logger.error(f"Failed to add {column['name']} column")
-        except Exception as e:
-            logger.error(f"Error checking/adding {column['name']} column: {e}")
-    
-    # Rename max_labels/min_labels columns (optional approach, but we'll skip for now and handle in app logic)
-    # This would break existing data access, so we'll just keep the original names
-    
-    # Cleanup
-    engine.dispose()
+def main():
+    """Main entry point."""
+    print("Starting schema update v2...")
+    if update_schema():
+        print("Schema update v2 successful")
+    else:
+        print("Schema update v2 failed")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    update_taxonomy_schema()
+    main()
