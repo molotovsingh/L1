@@ -635,11 +635,11 @@ def main():
                             tier_a_model = tier_a_model_option
                     
                     max_labels = st.number_input(
-                        "Max Labels", 
+                        "Tier-A Target Labels", 
                         min_value=5, 
                         max_value=15, 
                         value=DEFAULT_MAX_LABELS,
-                        help="Maximum number of labels in the final taxonomy"
+                        help="Target number of labels for candidate generation (Tier-A)"
                     )
                     
                     deny_list_text = st.text_area(
@@ -688,8 +688,13 @@ def main():
                         else:
                             tier_b_model = tier_b_model_option
                     
-                    # Hidden min_labels field - using max_labels for both min and max as requested
-                    min_labels = max_labels
+                    min_labels = st.number_input(
+                        "Tier-B Final Labels", 
+                        min_value=3, 
+                        max_value=12, 
+                        value=DEFAULT_MIN_LABELS,
+                        help="Target number of labels for the final refined taxonomy (Tier-B)"
+                    )
                     
                     out_dir_str = st.text_input(
                         "Output Directory", 
@@ -724,7 +729,7 @@ def main():
                     tier_a_model=tier_a_model,
                     tier_b_model=tier_b_model,
                     max_labels=max_labels,
-                    min_labels=max_labels,  # Using max_labels for min_labels as requested
+                    min_labels=min_labels,  # Now using the user-selected min_labels
                     deny_list=deny_list,
                     out_dir=out_dir,
                     api_provider=form_api_provider,
@@ -826,6 +831,19 @@ def main():
                             for label in rejected_labels:
                                 reason = rejection_reasons.get(label, "No reason provided")
                                 st.write(f"- **{label}**: {reason}")
+                    
+                    # Display raw API outputs if available (new feature)
+                    if 'tier_a_raw_output' in selected_taxonomy and selected_taxonomy['tier_a_raw_output']:
+                        with st.expander("Tier-A Raw Output"):
+                            st.code(selected_taxonomy['tier_a_raw_output'], language="json")
+                            if 'tier_a_timestamp' in selected_taxonomy and selected_taxonomy['tier_a_timestamp']:
+                                st.info(f"API call timestamp: {selected_taxonomy['tier_a_timestamp']}")
+                    
+                    if 'tier_b_raw_output' in selected_taxonomy and selected_taxonomy['tier_b_raw_output']:
+                        with st.expander("Tier-B Raw Output"):
+                            st.code(selected_taxonomy['tier_b_raw_output'], language="json")
+                            if 'tier_b_timestamp' in selected_taxonomy and selected_taxonomy['tier_b_timestamp']:
+                                st.info(f"API call timestamp: {selected_taxonomy['tier_b_timestamp']}")
                     
                     # Add options to export/delete
                     st.markdown("---")
