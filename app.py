@@ -566,7 +566,7 @@ def main():
             st.warning("⚠️ PERPLEXITY_API_KEY not found. Only OpenAI API will be available.")
     
     # Create tabs for different sections
-    tab1, tab2, tab3 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies", "Model Info"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies", "Model Info", "Debug Prompts"])
     
     with tab1:
         st.header("Generate New Taxonomy")
@@ -945,6 +945,123 @@ def main():
             - Response format is standardized across all models
             """)
         
+    with tab4:
+        st.header("Debug Prompts")
+        st.markdown("View the exact prompts used in the taxonomy generation pipeline for debugging purposes.")
+        
+        # Examples of the prompts used in each API provider
+        api_provider_for_debug = st.selectbox(
+            "API Provider",
+            options=API_PROVIDERS,
+            index=0,
+            key="debug_api_provider",
+            help="Select which API provider's prompts to display"
+        )
+        
+        # Debug form for entering a test domain and settings
+        with st.expander("Test Settings", expanded=True):
+            debug_domain = st.text_input("Test Domain", value="Cybersecurity", key="debug_domain")
+            debug_max_labels = st.slider("Tier-A Target Labels", min_value=5, max_value=15, value=DEFAULT_MAX_LABELS, key="debug_max_labels")
+            debug_min_labels = st.slider("Tier-B Final Labels", min_value=3, max_value=12, value=DEFAULT_MIN_LABELS, key="debug_min_labels")
+            debug_deny_list = st.text_area("Deny List (one term per line)", value=DEFAULT_DENY_LIST, key="debug_deny_list", height=100)
+            
+            # Process deny list
+            debug_deny_set = set(line.strip() for line in debug_deny_list.split('\n') if line.strip())
+        
+        # Display the prompts
+        st.subheader(f"{api_provider_for_debug} Prompts")
+        
+        # Tier-A Prompt
+        st.markdown("### Tier-A Prompt (Candidate Generation)")
+        if api_provider_for_debug == "OpenAI":
+            tier_a_prompt = f"""
+You are a domain taxonomy generator specializing in discrete events.
+
+Domain: {debug_domain}
+
+TASK:
+Generate a list of 12–15 distinct, top-level (L1) categories representing *specific types of events* or *discrete occurrences* within the '{debug_domain}' domain. Think incidents, launches, breakthroughs, failures, breaches, discoveries, major releases, regulatory actions, etc.
+
+Rules for Labels:
+1. Format: TitleCase, 1–4 words. May include one internal hyphen (e.g., Model-Launch, Data-Breach, Regulatory-Approval). Start with a capital letter. NO hash symbols (#).
+2. Event-Driven: Must describe *what happened* (an event, a change), not an ongoing state, capability, technology area, or general theme.
+3. Specificity: Prefer specific event types over overly broad categories.
+4. Exclusion: Avoid generic business terms like {', '.join(debug_deny_set)}. These are handled separately.
+5. Output Format: Return ONLY a JSON array of strings. Example: ["Model-Launch", "System-Outage", "Major-Discovery"]
+
+Generate the JSON array now.
+"""
+        else:  # Perplexity
+            import call_perplexity_api
+            tier_a_prompt = call_perplexity_api.create_taxonomy_prompt(debug_domain, debug_max_labels, debug_min_labels, debug_deny_set)
+        
+        st.code(tier_a_prompt, language="text")
+        
+        # Sample list of candidates (for demonstration purposes)
+        sample_candidates = [
+            "Data-Breach", 
+            "Malware-Attack", 
+            "Vulnerability-Disclosure", 
+            "System-Outage", 
+            "Security-Patch", 
+            "Regulatory-Compliance", 
+            "Authentication-Failure", 
+            "Zero-Day-Exploit", 
+            "Ransomware-Incident", 
+            "DDoS-Attack"
+        ]
+        
+        # Tier-B Prompt
+        st.markdown("### Tier-B Prompt (Refinement)")
+        if api_provider_for_debug == "OpenAI":
+            tier_b_prompt = f"""
+You are a meticulous taxonomy auditor enforcing specific principles.
+
+Candidate Event Labels for Domain '{debug_domain}':
+{json.dumps(sample_candidates, indent=2)}
+
+Your Task:
+Review the candidate labels based on the following principles and return a refined list.
+
+Principles to Enforce:
+1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states (e.g., "Machine Learning", "Cloud Infrastructure").
+2. Formatting: Ensure labels are 1–4 words, TitleCase. Hyphens are allowed ONLY between words (e.g., "Data-Breach" is okay, "AI-Powered" as an event type might be questionable unless it refers to a specific *launch* event). No leading symbols like '#'.
+3. Deny List: Reject any label containing the exact terms: {', '.join(debug_deny_set)}.
+4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {debug_min_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
+5. Output Structure: Return ONLY a JSON object with the following keys:
+   - "approved": A JSON array of strings containing the final, approved labels.
+   - "rejected": A JSON array of strings containing the labels that were rejected or merged away.
+   - "reason_rejected": A JSON object mapping each rejected label (from the "rejected" list) to a brief reason for rejection (e.g., "Not event-driven", "Synonym of X", "Contains denied term", "Too broad").
+
+Example Output Format:
+{{
+  "approved": ["Model-Launch", "System-Outage", "Regulatory-Action"],
+  "rejected": ["AI Research", "Funding Round", "ProductUpdate"],
+  "reason_rejected": {{
+    "AI Research": "Not event-driven, describes a theme.",
+    "Funding Round": "Contains denied term 'Funding'.",
+    "ProductUpdate": "Merged into Major-Release."
+  }}
+}}
+
+Return only the JSON object now.
+"""
+        else:  # Perplexity
+            import call_perplexity_api
+            tier_b_prompt = call_perplexity_api.create_taxonomy_audit_prompt(
+                debug_domain, sample_candidates, debug_max_labels, debug_min_labels, debug_deny_set, 
+                model_name="sonar-reasoning"  # Default reasoning model for example
+            )
+        
+        st.code(tier_b_prompt, language="text")
+        
+        # Additional notes section
+        st.markdown("### Notes")
+        st.info("""
+        - The actual prompts used during taxonomy generation will use the exact domain, settings, and candidates from your input.
+        - The sample candidates list above is for demonstration purposes only.
+        - When using Perplexity's reasoning models, additional processing is applied to extract structured data from the natural language responses.
+        """)
 
 
 if __name__ == "__main__":

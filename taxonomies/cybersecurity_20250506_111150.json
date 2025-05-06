@@ -1,0 +1,38 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250506_111150",
+  "api_provider": "OpenAI",
+  "tier_a_model": "gpt-4o",
+  "tier_b_model": "o3",
+  "tier_a_labels": 15,
+  "tier_b_labels": 8,
+  "max_labels": 15,
+  "min_labels": 8,
+  "deny_list": [
+    "Funding",
+    "Hiring",
+    "Partnership"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "Ransomware-Attack",
+    "Zero-Day-Exploit",
+    "Phishing-Campaign",
+    "Security-Patch-Release",
+    "Vulnerability-Disclosure",
+    "Regulatory-Action",
+    "Cybersecurity-Law-Enactment",
+    "Encryption-Protocol-Update",
+    "Malware-Detection",
+    "DDoS-Attack",
+    "Incident-Response-Initiation",
+    "Security-Audit-Finding",
+    "Threat-Intelligence-Report",
+    "Cybersecurity-Conference-Announcement"
+  ],
+  "rejected_labels": {},
+  "tier_a_raw_output": "```json\n[\n    \"Data-Breach\",\n    \"Ransomware-Attack\",\n    \"Zero-Day-Exploit\",\n    \"Phishing-Campaign\",\n    \"Security-Patch-Release\",\n    \"Vulnerability-Disclosure\",\n    \"Regulatory-Action\",\n    \"Cybersecurity-Law-Enactment\",\n    \"Encryption-Protocol-Update\",\n    \"Malware-Detection\",\n    \"DDoS-Attack\",\n    \"Incident-Response-Initiation\",\n    \"Security-Audit-Finding\",\n    \"Threat-Intelligence-Report\",\n    \"Cybersecurity-Conference-Announcement\"\n]\n```",
+  "tier_b_raw_output": null,
+  "tier_a_timestamp": "2025-05-06 11:11:33",
+  "tier_b_timestamp": null
+}

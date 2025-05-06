@@ -1,0 +1,39 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250506_110814",
+  "api_provider": "Perplexity",
+  "tier_a_model": "sonar",
+  "tier_b_model": "r1-1776",
+  "tier_a_labels": 15,
+  "tier_b_labels": 8,
+  "max_labels": 15,
+  "min_labels": 8,
+  "deny_list": [
+    "Funding",
+    "Hiring",
+    "Partnership"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "Ransomware-Attack",
+    "Zero-Day-Exploit",
+    "DDoS-Incident",
+    "Phishing-Campaign",
+    "Vulnerability-Disclosure",
+    "Regulatory-Compliance-Action",
+    "Supply-Chain-Compromise",
+    "Insider-Threat-Incident",
+    "Malware-Outbreak",
+    "Critical-Patch-Release",
+    "Credential-Stuffing-Attack",
+    "Cloud-Service-Compromise",
+    "Industrial-Control-System-Breach"
+  ],
+  "rejected_labels": {
+    "Advanced-Persistent-Threat": "Not event-driven, describes a capability or ongoing threat."
+  },
+  "tier_a_raw_output": "```json\n[\"Data-Breach\", \"Ransomware-Attack\", \"Zero-Day-Exploit\", \"DDoS-Incident\", \"Phishing-Campaign\", \"Vulnerability-Disclosure\", \"Regulatory-Compliance-Action\", \"Supply-Chain-Compromise\", \"Insider-Threat-Incident\", \"Malware-Outbreak\", \"Critical-Patch-Release\", \"Advanced-Persistent-Threat\", \"Credential-Stuffing-Attack\", \"Cloud-Service-Compromise\", \"Industrial-Control-System-Breach\"]\n```",
+  "tier_b_raw_output": "<think>\nOkay, let's start by reviewing each candidate label against the given principles. \n\nFirst, the principles mention that each label must be a discrete event. So I need to check if any of these labels are too general or describe ongoing states. Let's go through each one:\n\n1. **Data-Breach**: This is a specific incident, so it's event-driven. Approved.\n2. **Ransomware-Attack**: Definitely an event. Approved.\n3. **Zero-Day-Exploit**: This refers to the exploitation of a vulnerability, which is an incident. Approved.\n4. **DDoS-Incident**: An event. Approved.\n5. **Phishing-Campaign**: A campaign is a series of events, but it's still a specific occurrence. Maybe okay, but need to check if \"campaign\" is considered ongoing. The example includes \"Phishing-Campaign\" in the candidate list, so perhaps it's acceptable. Approved.\n6. **Vulnerability-Disclosure**: This is an event when a vulnerability is disclosed. Approved.\n7. **Regulatory-Compliance-Action**: An action taken by regulators, which is an event. Approved.\n8. **Supply-Chain-Compromise**: A specific incident. Approved.\n9. **Insider-Threat-Incident**: An incident, so event-driven. Approved.\n10. **Malware-Outbreak**: An outbreak is an event. Approved.\n11. **Critical-Patch-Release**: The release of a patch is an event. Approved.\n12. **Advanced-Persistent-Threat**: APT is more of a capability or ongoing threat, not a discrete event. This might need to be rejected. Let's check the principles. Principle 1 says to reject labels describing capabilities. So this should be rejected as not event-driven.\n13. **Credential-Stuffing-Attack**: An attack event. Approved.\n14. **Cloud-Service-Compromise**: A specific incident. Approved.\n15. **Industrial-Control-System-Breach**: A breach event. Approved.\n\nNow, check for denied terms: Funding, Hiring, Partnership. None of the labels have these, so no rejections here.\n\nNext, formatting: All labels are in TitleCase with hyphens only between words. No issues here.\n\nConsolidation: Are there any synonyms or overlaps? Let's see. For example, \"Advanced-Persistent-Threat\" is rejected, so that's one. Are there others? Let's check:\n\n- \"Malware-Outbreak\" and \"Ransomware-Attack\" are both types of malware incidents but distinct enough. Similarly, \"Data-Breach\" and \"Industrial-Control-System-Breach\" are specific types of breaches. No clear synonyms here. The count is 14 approved after rejecting APT. The target is 15\u00b11, so maybe we can keep all except APT. Wait, the original list has 15, and after rejecting one, we have 14. But the example output has 15\u00b11, so 14 is acceptable. Alternatively, maybe another label should be merged. Let me check again.\n\nWait, the candidate list has 15 labels. After rejecting \"Advanced-Persistent-Threat\", we have 14. To reach 15, maybe there's another label that was mistakenly rejected. Let me re-examine.\n\nWait, the initial count after rejecting APT is 14 approved. But the user provided 15 candidates. The target is 15\u00b11, so 14 is within range. However, maybe I missed something. Let me check again.\n\nLooking at \"Advanced-Persistent-Threat\" again. The user included it in the candidates. But according to principle 1, it's a capability, not an event. So correct to reject. Therefore, the approved list has 14, which is within the target. So that's acceptable.\n\nSo the final approved list would exclude \"Advanced-Persistent-Threat\", and the rest are approved. Let me confirm each again quickly:\n\nAll others are events, no denied terms, correct formatting. So the JSON should reflect that.\n</think>\n\n{\n  \"approved\": [\n    \"Data-Breach\",\n    \"Ransomware-Attack\",\n    \"Zero-Day-Exploit\",\n    \"DDoS-Incident\",\n    \"Phishing-Campaign\",\n    \"Vulnerability-Disclosure\",\n    \"Regulatory-Compliance-Action\",\n    \"Supply-Chain-Compromise\",\n    \"Insider-Threat-Incident\",\n    \"Malware-Outbreak\",\n    \"Critical-Patch-Release\",\n    \"Credential-Stuffing-Attack\",\n    \"Cloud-Service-Compromise\",\n    \"Industrial-Control-System-Breach\"\n  ],\n  \"rejected\": [\"Advanced-Persistent-Threat\"],\n  \"reason_rejected\": {\n    \"Advanced-Persistent-Threat\": \"Not event-driven, describes a capability or ongoing threat.\"\n  }\n}",
+  "tier_a_timestamp": "2025-05-06 11:07:55",
+  "tier_b_timestamp": "2025-05-06 11:08:14"
+}
