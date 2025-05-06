@@ -60,13 +60,20 @@ class Taxonomy(Base):
             "api_provider": self.api_provider,
             "tier_a_model": self.tier_a_model,
             "tier_b_model": self.tier_b_model,
-            "max_labels": self.max_labels,
-            "min_labels": self.min_labels,
+            "tier_a_labels": self.max_labels,  # Renamed for clarity in UI
+            "tier_b_labels": self.min_labels,  # Renamed for clarity in UI 
+            "max_labels": self.max_labels,     # Keep original for backwards compatibility
+            "min_labels": self.min_labels,     # Keep original for backwards compatibility
             "deny_list": json.loads(self.deny_list) if self.deny_list else [],
             "approved_labels": [label.label for label in self.approved_labels],
             "rejected_labels": {
                 label.label: label.rejection_reason for label in self.rejected_labels
-            }
+            },
+            # Add new fields
+            "tier_a_raw_output": self.tier_a_raw_output if self.tier_a_raw_output else None,
+            "tier_b_raw_output": self.tier_b_raw_output if self.tier_b_raw_output else None,
+            "tier_a_timestamp": self.tier_a_timestamp.strftime("%Y-%m-%d %H:%M:%S") if self.tier_a_timestamp else None,
+            "tier_b_timestamp": self.tier_b_timestamp.strftime("%Y-%m-%d %H:%M:%S") if self.tier_b_timestamp else None
         }
 
 
@@ -103,7 +110,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, deny_list, 
-                   approved_labels, rejected_labels, rejection_reasons, api_provider="OpenAI"):
+                   approved_labels, rejected_labels, rejection_reasons, api_provider="OpenAI",
+                   tier_a_raw_output=None, tier_b_raw_output=None, 
+                   tier_a_timestamp=None, tier_b_timestamp=None):
     """
     Create a new taxonomy in the database.
     
@@ -111,13 +120,17 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
         domain (str): The domain for the taxonomy
         tier_a_model (str): The model used for Tier-A
         tier_b_model (str): The model used for Tier-B
-        max_labels (int): Maximum number of labels
-        min_labels (int): Minimum number of labels
+        max_labels (int): Maximum number of labels (Tier-A target in UI)
+        min_labels (int): Minimum number of labels (Tier-B target in UI)
         deny_list (set): Set of denied terms
         approved_labels (list): List of approved labels
         rejected_labels (list): List of rejected labels
         rejection_reasons (dict): Mapping of rejected labels to reasons
         api_provider (str): The API provider used ("OpenAI" or "Perplexity")
+        tier_a_raw_output (str): Raw output from the Tier-A model
+        tier_b_raw_output (str): Raw output from the Tier-B model
+        tier_a_timestamp (datetime): When the Tier-A API was called
+        tier_b_timestamp (datetime): When the Tier-B API was called
         
     Returns:
         int: The ID of the created taxonomy or None if there was an error
@@ -127,17 +140,28 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
     filename = f"taxonomies/{domain.replace(' ', '_')}_{timestamp}.json"
     try:
         os.makedirs("taxonomies", exist_ok=True)
+        # Format timestamps for JSON
+        tier_a_time_str = tier_a_timestamp.strftime("%Y-%m-%d %H:%M:%S") if tier_a_timestamp else None
+        tier_b_time_str = tier_b_timestamp.strftime("%Y-%m-%d %H:%M:%S") if tier_b_timestamp else None
+        
         taxonomy_data = {
             "domain": domain,
             "timestamp": timestamp,
             "api_provider": api_provider,
             "tier_a_model": tier_a_model,
             "tier_b_model": tier_b_model,
-            "max_labels": max_labels,
-            "min_labels": min_labels,
+            "tier_a_labels": max_labels,  # Renamed for clarity
+            "tier_b_labels": min_labels,  # Renamed for clarity
+            "max_labels": max_labels,     # Keep original for compatibility 
+            "min_labels": min_labels,     # Keep original for compatibility
             "deny_list": list(deny_list),
             "approved_labels": approved_labels,
-            "rejected_labels": {label: rejection_reasons.get(label, "No reason") for label in rejected_labels}
+            "rejected_labels": {label: rejection_reasons.get(label, "No reason") for label in rejected_labels},
+            # Add new fields
+            "tier_a_raw_output": tier_a_raw_output,
+            "tier_b_raw_output": tier_b_raw_output,
+            "tier_a_timestamp": tier_a_time_str,
+            "tier_b_timestamp": tier_b_time_str
         }
         with open(filename, "w") as f:
             json.dump(taxonomy_data, f, indent=2)
@@ -156,7 +180,12 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
             tier_b_model=tier_b_model,
             max_labels=max_labels,
             min_labels=min_labels,
-            deny_list=json.dumps(list(deny_list))
+            deny_list=json.dumps(list(deny_list)),
+            # Add new fields
+            tier_a_raw_output=tier_a_raw_output,
+            tier_b_raw_output=tier_b_raw_output,
+            tier_a_timestamp=tier_a_timestamp,
+            tier_b_timestamp=tier_b_timestamp
         )
         session.add(taxonomy)
         session.flush()  # Get the ID before committing

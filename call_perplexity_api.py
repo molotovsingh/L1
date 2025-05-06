@@ -12,7 +12,8 @@ import time
 import json
 import logging
 import traceback
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
+from datetime import datetime
 
 import streamlit as st
 try:
@@ -207,7 +208,7 @@ Return only the JSON object now.
     return prompt
 
 
-def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: str = "sonar") -> Optional[str]:
+def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: str = "sonar") -> Tuple[Optional[str], Optional[str], Optional[datetime]]:
     """
     Call Perplexity API for Tier-A candidate generation.
     
@@ -217,7 +218,10 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         model_name: Perplexity model to use
         
     Returns:
-        str or None: API response content or None on failure
+        Tuple containing:
+        - str or None: Processed API response content or None on failure
+        - str or None: Raw API response content for logging/debugging
+        - datetime or None: Timestamp when the API was called
     """
     if not api_key:
         st.error("PERPLEXITY_API_KEY required but not found in environment variables.")
