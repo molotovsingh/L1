@@ -20,7 +20,7 @@ import db_models
 
 # Custom utilities
 import model_mapper
-import call_apis
+import call_apis_new as call_apis  # Using the updated API implementation
 import call_perplexity_api
 
 # API clients
@@ -167,7 +167,9 @@ Generate the JSON array now.
         st.info(f"🔹 Generating Tier‑A candidates via {api_provider} API...")
         with st.spinner(f"Waiting for {api_provider} API response for generation..."):
             candidates: List[str] = []
-            resp_A = call_apis.call_tier_a_api(prompt_A, openai_api_key, tier_a_model)
+            # Now returns tuple of (processed_content, raw_content, timestamp)
+            resp_A_processed, resp_A_raw, tier_a_timestamp = call_apis.call_tier_a_api(prompt_A, openai_api_key, tier_a_model)
+            resp_A = resp_A_processed  # Use the processed content for compatibility with existing code
             
     else:  # Perplexity
         # Create prompt for Perplexity
@@ -293,7 +295,11 @@ Example Output Format:
 Return only the JSON object now.
 """
             with st.spinner(f"Waiting for {api_provider} API response for refinement..."):
-                audit_response_str = call_apis.call_openai_api(prompt_B, openai_api_key, tier_b_selected_model)
+                # Now returns tuple of (processed_content, raw_content, timestamp)
+                audit_response_processed, audit_response_raw, tier_b_timestamp = call_apis.call_openai_api(
+                    prompt_B, openai_api_key, tier_b_selected_model
+                )
+                audit_response_str = audit_response_processed  # Use processed content for compatibility
                 
         else:  # Perplexity
             # Create prompt for Perplexity - pass model name to determine output format
@@ -489,6 +495,12 @@ Return only the JSON object now.
         st.success(f"Taxonomy saved to file: {output_file}")
     except Exception as e:
         st.error(f"Failed to save taxonomy to file: {e}")
+    
+    # Initialize variables that might not be defined in all code paths
+    resp_A_raw = locals().get('resp_A_raw', None)  # Get from locals if defined, else None
+    audit_response_raw = locals().get('audit_response_raw', None)
+    tier_a_timestamp = locals().get('tier_a_timestamp', None)
+    tier_b_timestamp = locals().get('tier_b_timestamp', None)
     
     # Save to database with improved error handling and raw outputs
     taxonomy_id = db_models.create_taxonomy(
