@@ -1,7 +1,8 @@
 """API calling functions for OpenAI models"""
 
 import time
-from typing import Optional
+from typing import Optional, Tuple
+from datetime import datetime
 
 import streamlit as st
 from openai import OpenAI, APIError as OpenAI_APIError, AuthenticationError as OpenAI_AuthError
@@ -9,11 +10,24 @@ from openai import RateLimitError as OpenAI_RateLimitError, APIConnectionError a
 
 import model_mapper
 
-def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Optional[str]:
-    """Calls the OpenAI API for Tier-A (candidate generation) with retry logic."""
+def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Tuple[Optional[str], Optional[str], Optional[datetime]]:
+    """
+    Calls the OpenAI API for Tier-A (candidate generation) with retry logic.
+    
+    Args:
+        prompt: Prompt for the API
+        api_key: OpenAI API key
+        model_name: OpenAI model to use
+        
+    Returns:
+        Tuple containing:
+        - str or None: Processed API response content or None on failure
+        - str or None: Raw API response content for logging/debugging
+        - datetime or None: Timestamp when the API was called
+    """
     if not api_key:
         st.error("OPENAI_API_KEY required for Tier-A call but not found/set.")
-        return None
+        return None, None, None
         
     # Map the model name (handle shorthands like o1, o3)
     model_name = model_mapper.map_model_name(model_name)
@@ -58,6 +72,9 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                     {"role": "user", "content": prompt + "\n\nImportant: Provide a clear list of labels."}
                 ]
             
+            # Record the timestamp when the API was called
+            api_timestamp = datetime.now()
+            
             # Make the API call with the adjusted parameters
             response = client.chat.completions.create(**params)
             
@@ -86,7 +103,10 @@ def call_tier_a_api(prompt: str, api_key: Optional[str], model_name: str) -> Opt
                 if content:
                     if attempt > 0:
                         st.success(f"Successfully retrieved response after {attempt} retries.")
-                    return content.strip()
+                    # Preserve raw content for database storage
+                    processed_content = content.strip()
+                    raw_content = content
+                    return processed_content, raw_content, api_timestamp
             
             # For o-series models, if we get empty response, try a fallback approach
             if is_o_series:
