@@ -1,0 +1,31 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250506_015358",
+  "api_provider": "Perplexity",
+  "tier_a_model": "sonar",
+  "tier_b_model": "sonar-reasoning",
+  "max_labels": 15,
+  "min_labels": 11,
+  "deny_list": [
+    "Partnership",
+    "Funding",
+    "Hiring"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "System-Outage",
+    "Major-Discovery",
+    "Vulnerability-Exploit",
+    "Regulatory-Action",
+    "Malware-Outbreak",
+    "DDoS-Attack",
+    "Cloud-Compromise",
+    "Network-Intrusion",
+    "Cryptographic-Breakthrough",
+    "Software-Vulnerability",
+    "Cybersecurity-Legislation",
+    "Ransomware-Incident",
+    "Zero-Day-Exploit"
+  ],
+  "rejected_labels": {}
+}

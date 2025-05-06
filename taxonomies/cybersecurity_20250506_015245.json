@@ -1,0 +1,26 @@
+{
+  "domain": "cybersecurity",
+  "timestamp": "20250506_015245",
+  "api_provider": "Perplexity",
+  "tier_a_model": "sonar",
+  "tier_b_model": "sonar-reasoning",
+  "max_labels": 9,
+  "min_labels": 8,
+  "deny_list": [
+    "Partnership",
+    "Funding",
+    "Hiring"
+  ],
+  "approved_labels": [
+    "Data-Breach",
+    "Malware-Outbreak",
+    "Ransomware-Attack",
+    "System-Outage",
+    "Regulatory-Action",
+    "Major-Discovery",
+    "Zero-Day-Exploit",
+    "Denial-Of-Service",
+    "Insider-Threat"
+  ],
+  "rejected_labels": {}
+}

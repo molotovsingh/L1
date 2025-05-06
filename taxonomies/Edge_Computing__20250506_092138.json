@@ -1,0 +1,29 @@
+{
+  "domain": "Edge Computing ",
+  "timestamp": "20250506_092138",
+  "api_provider": "",
+  "tier_a_model": "sonar",
+  "tier_b_model": "r1-1776",
+  "max_labels": 15,
+  "min_labels": 8,
+  "deny_list": [
+    "Partnership",
+    "Funding",
+    "Hiring"
+  ],
+  "approved_labels": [
+    "System-Outage",
+    "Data-Breach",
+    "Model-Launch",
+    "Major-Discovery",
+    "Regulatory-Approval",
+    "Product-Release",
+    "Security-Incident",
+    "Network-Failure",
+    "Device-Malfunction",
+    "Software-Update",
+    "Hardware-Failure",
+    "Cyber-Attack"
+  ],
+  "rejected_labels": {}
+}
