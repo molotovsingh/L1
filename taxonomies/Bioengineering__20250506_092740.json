@@ -1,0 +1,28 @@
+{
+  "domain": "Bioengineering ",
+  "timestamp": "20250506_092740",
+  "api_provider": "Perplexity",
+  "tier_a_model": "sonar",
+  "tier_b_model": "sonar-reasoning",
+  "max_labels": 15,
+  "min_labels": 8,
+  "deny_list": [
+    "Funding",
+    "Hiring",
+    "Partnership"
+  ],
+  "approved_labels": [
+    "Breakthrough-Discovery",
+    "Clinical-Trial-Approval",
+    "Device-Recall",
+    "Drug-Approval",
+    "Gene-Therapy-Breakthrough",
+    "Medical-Device-Launch",
+    "Regulatory-Action",
+    "Research-Publication",
+    "Technological-Innovation",
+    "Treatment-Failure",
+    "Vaccine-Approval"
+  ],
+  "rejected_labels": {}
+}

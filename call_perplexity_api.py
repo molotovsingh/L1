@@ -109,7 +109,8 @@ def create_taxonomy_audit_prompt(
     candidates: List[str], 
     max_labels: int, 
     min_labels: int, 
-    deny_list: set
+    deny_list: set,
+    model_name: str = ""
 ) -> str:
     """
     Create a prompt for Perplexity API to audit and refine a taxonomy.
@@ -120,13 +121,57 @@ def create_taxonomy_audit_prompt(
         max_labels: Maximum number of labels
         min_labels: Minimum number of labels
         deny_list: Set of denied terms
+        model_name: The model being used (to customize output format)
         
     Returns:
         str: Formatted prompt
     """
     denied_terms = ", ".join(deny_list) if deny_list else "none"
     
-    prompt = f"""
+    # Check if this is a reasoning model
+    is_reasoning_model = "reasoning" in model_name.lower() if model_name else False
+    
+    if is_reasoning_model:
+        # For reasoning models, use a more natural language output format
+        prompt = f"""
+You are a meticulous taxonomy auditor enforcing specific principles.
+
+Candidate Event Labels for Domain '{domain}':
+{json.dumps(candidates, indent=2)}
+
+Your Task:
+Review the candidate labels based on the following principles and return a refined list.
+
+Principles to Enforce:
+1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states (e.g., "Machine Learning", "Cloud Infrastructure").
+2. Formatting: Ensure labels are 1–4 words, TitleCase. Hyphens are allowed ONLY between words (e.g., "Data-Breach" is okay, "AI-Powered" as an event type might be questionable unless it refers to a specific *launch* event). No leading symbols like '#'.
+3. Deny List: Reject any label containing the exact terms: {denied_terms}.
+4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {max_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
+
+Output Format:
+1. First, list your APPROVED LABELS with the heading "APPROVED LABELS:" (one per line)
+2. Then, list your REJECTED LABELS with the heading "REJECTED LABELS:" (one per line)
+3. Finally, for each rejected label, explain why it was rejected under the heading "REJECTION REASONS:"
+
+Example:
+APPROVED LABELS:
+Model-Launch
+System-Outage
+Regulatory-Action
+
+REJECTED LABELS:
+AI Research
+Funding Round
+ProductUpdate
+
+REJECTION REASONS:
+AI Research: Not event-driven, describes a theme.
+Funding Round: Contains denied term 'Funding'.
+ProductUpdate: Merged into Major-Release.
+"""
+    else:
+        # For non-reasoning models, use the original JSON output format
+        prompt = f"""
 You are a meticulous taxonomy auditor enforcing specific principles.
 
 Candidate Event Labels for Domain '{domain}':
@@ -243,6 +288,92 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         return None
 
 
+def extract_structured_data_from_text(text: str, api_key: Optional[str]) -> Optional[Dict]:
+    """
+    Use the sonar model to extract structured data from natural language output.
+    
+    Args:
+        text: The natural language output to process
+        api_key: Perplexity API key
+        
+    Returns:
+        Dict or None: Structured data with approved/rejected labels and reasons
+    """
+    if not api_key:
+        st.error("PERPLEXITY_API_KEY required but not found in environment variables.")
+        return None
+    
+    st.info("🔍 Using sonar model to extract structured data from natural language output...")
+    
+    prompt = f"""
+Extract structured data from the following text, which contains a taxonomy review with approved labels, rejected labels, and rejection reasons:
+
+'''
+{text}
+'''
+
+Return this information as a valid JSON object with the following structure:
+{{
+  "approved": ["Label1", "Label2", "Label3", ...],
+  "rejected": ["RejectedLabel1", "RejectedLabel2", ...],
+  "reason_rejected": {{
+    "RejectedLabel1": "Reason for rejection",
+    "RejectedLabel2": "Reason for rejection",
+    ...
+  }}
+}}
+
+Make sure the approved and rejected lists are complete and accurate based on the text.
+"""
+    
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.perplexity.ai"
+        )
+        
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that extracts structured data from text."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        logger.info("Calling Perplexity API (sonar) for JSON extraction")
+        
+        response = client.chat.completions.create(
+            model="sonar",  # Use regular sonar, not reasoning models
+            messages=messages,
+            temperature=0.0,
+            max_tokens=2048,
+            top_p=1,
+            response_format={"type": "json_object"}  # Request JSON format
+        )
+        
+        if hasattr(response, 'choices') and len(response.choices) > 0:
+            content = response.choices[0].message.content
+            if content:
+                try:
+                    # Parse the JSON response
+                    structured_data = json.loads(content.strip())
+                    return structured_data
+                except json.JSONDecodeError as e:
+                    st.error(f"Failed to parse JSON from sonar extraction: {e}")
+                    st.expander("Raw Extraction Result").code(content)
+                    return None
+        
+        st.error("Sonar returned an empty or invalid response for extraction.")
+        return None
+        
+    except Exception as e:
+        st.error(f"Error calling Perplexity sonar for extraction: {e}")
+        return None
+
+
 def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: str = "sonar-reasoning") -> Optional[str]:
     """
     Call Perplexity API for Tier-B refinement.
@@ -322,4 +453,108 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
         elif "429" in str(e):
             st.warning("Rate limit exceeded. Try again later.")
         
+        return None
+
+
+def extract_structured_data_with_sonar(text: str, api_key: Optional[str]) -> Optional[Dict]:
+    """
+    Use Perplexity's sonar model to extract structured data from natural language responses.
+    
+    Args:
+        text: Text response from a reasoning model
+        api_key: Perplexity API key
+        
+    Returns:
+        Dict or None: Structured data extracted from text
+    """
+    if not api_key:
+        st.error("PERPLEXITY_API_KEY required but not found in environment variables.")
+        return None
+    
+    # Create a prompt to extract the structured data
+    prompt = f"""
+You are a specialized data extraction tool. Extract structured data from the following taxonomy evaluation:
+
+{text}
+
+Extract and return the following information as a valid JSON object:
+1. A list of approved labels under the key "approved"
+2. A list of rejected labels under the key "rejected"
+3. A dictionary mapping each rejected label to its rejection reason under the key "reason_rejected"
+
+Example output format:
+{{
+  "approved": ["Model-Launch", "System-Outage", "Regulatory-Action"],
+  "rejected": ["AI Research", "Funding Round", "ProductUpdate"],
+  "reason_rejected": {{
+    "AI Research": "Not event-driven, describes a theme.",
+    "Funding Round": "Contains denied term 'Funding'.",
+    "ProductUpdate": "Merged into Major-Release."
+  }}
+}}
+
+Return only the JSON object.
+"""
+    
+    try:
+        st.info("Using sonar to extract structured data from reasoning model output...")
+        
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.perplexity.ai"
+        )
+        
+        # Create system message and user message
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a specialized data extraction tool that transforms natural language into structured JSON."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        # Make API call to sonar model
+        response = client.chat.completions.create(
+            model="sonar",  # Using sonar for structure extraction
+            messages=messages,
+            temperature=0.0,
+            max_tokens=2048,
+            top_p=1,
+        )
+        
+        # Extract content
+        if hasattr(response, 'choices') and len(response.choices) > 0:
+            content = response.choices[0].message.content
+            if content:
+                # Try to parse the extracted JSON
+                try:
+                    # Look for JSON object pattern in the response {....}
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        data = json.loads(json_str)
+                        
+                        # Verify the extracted structure
+                        if (isinstance(data, dict) and 
+                            "approved" in data and isinstance(data["approved"], list) and
+                            "rejected" in data and isinstance(data["rejected"], list) and
+                            "reason_rejected" in data and isinstance(data["reason_rejected"], dict)):
+                            
+                            st.success("✅ Successfully extracted structured data from reasoning model output")
+                            return data
+                        else:
+                            st.warning("Extracted JSON has an invalid structure")
+                    else:
+                        st.warning("Could not find JSON in sonar extraction response")
+                except json.JSONDecodeError:
+                    st.warning("Could not parse JSON from sonar extraction")
+        
+        st.error("Sonar extraction failed to produce valid structured data")
+        return None
+        
+    except Exception as e:
+        st.error(f"Error using sonar for extraction: {e}")
         return None

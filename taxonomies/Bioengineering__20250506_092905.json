@@ -1,0 +1,32 @@
+{
+  "domain": "Bioengineering ",
+  "timestamp": "20250506_092905",
+  "api_provider": "Perplexity",
+  "tier_a_model": "sonar",
+  "tier_b_model": "sonar",
+  "max_labels": 15,
+  "min_labels": 10,
+  "deny_list": [
+    "Funding",
+    "Hiring",
+    "Partnership"
+  ],
+  "approved_labels": [
+    "Device-Recall",
+    "Clinical-Trial-Approval",
+    "Implant-Failure",
+    "Biomaterial-Breakthrough",
+    "Prosthetic-Launch",
+    "Imaging-System-Release",
+    "Tissue-Engineered-Organ-Transplant",
+    "Neural-Interface-Demonstration",
+    "Regulatory-Compliance-Violation",
+    "Gene-Editing-Clinical-Application",
+    "Diagnostic-Device-Certification",
+    "Biomechanical-Model-Validation",
+    "Synthetic-Biology-Prototype-Test",
+    "Medical-Imaging-Algorithm-Patent",
+    "Bioinstrumentation-System-Failure"
+  ],
+  "rejected_labels": {}
+}

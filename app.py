@@ -291,8 +291,10 @@ Return only the JSON object now.
                 audit_response_str = call_apis.call_openai_api(prompt_B, openai_api_key, tier_b_selected_model)
                 
         else:  # Perplexity
-            # Create prompt for Perplexity
-            prompt_B = call_perplexity_api.create_taxonomy_audit_prompt(domain, candidates, max_labels, min_labels, deny_list)
+            # Create prompt for Perplexity - pass model name to determine output format
+            prompt_B = call_perplexity_api.create_taxonomy_audit_prompt(
+                domain, candidates, max_labels, min_labels, deny_list, model_name=tier_b_selected_model
+            )
             
             with st.spinner(f"Waiting for {api_provider} API response for refinement..."):
                 audit_response_str = call_perplexity_api.call_perplexity_api_tier_b(prompt_B, perplexity_api_key, tier_b_selected_model)
@@ -302,52 +304,131 @@ Return only the JSON object now.
             with st.expander("Raw Tier-B Response"):
                 st.code(audit_response_str, language="json")
 
-            try:
-                # First attempt - direct JSON parsing
-                try:
-                    audit_result = json.loads(audit_response_str)
-                except json.JSONDecodeError:
-                    # If direct parsing fails, try to extract JSON object pattern
-                    st.warning("Direct JSON parsing failed. Attempting to extract JSON object from response.")
-                    # Look for JSON object pattern in the response {....}
-                    json_match = re.search(r'\{.*\}', audit_response_str, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group(0)
-                        try:
-                            audit_result = json.loads(json_str)
-                            st.info("Successfully extracted JSON object from response.")
-                        except json.JSONDecodeError:
-                            # If still fails, display detailed error
-                            st.error("Extracted content is not valid JSON.")
-                            st.expander("Extracted Content").code(json_str)
-                            raise
-                    else:
-                        st.error("Could not find JSON object pattern in response.")
-                        raise json.JSONDecodeError("No JSON object found", audit_response_str, 0)
+            # Check if this is a reasoning model response (text format)
+            is_reasoning_model = "reasoning" in tier_b_selected_model.lower() if tier_b_selected_model else False
+            
+            if is_reasoning_model:
+                # First, try post-processing with sonar to extract structured data
+                st.info("Processing natural language output from reasoning model...")
                 
-                # Verify expected structure
-                if isinstance(audit_result, dict) and \
-                   "approved" in audit_result and isinstance(audit_result["approved"], list) and \
-                   "rejected" in audit_result and isinstance(audit_result["rejected"], list) and \
-                   "reason_rejected" in audit_result and isinstance(audit_result["reason_rejected"], dict):
-
-                    approved = [str(lbl).strip().lstrip('# ') for lbl in audit_result["approved"] if isinstance(lbl, str)]
-                    rejected = [str(lbl).strip().lstrip('# ') for lbl in audit_result["rejected"] if isinstance(lbl, str)]
-                    rejected_info = audit_result["reason_rejected"]
-                    st.success(f"✅ Tier-B approved {len(approved)} labels after audit.")
+                # Use sonar to extract structured data from the natural language response
+                structured_data = call_perplexity_api.extract_structured_data_with_sonar(
+                    audit_response_str, 
+                    perplexity_api_key
+                )
+                
+                if structured_data and isinstance(structured_data, dict):
+                    # Successfully extracted structured data
+                    approved = structured_data.get("approved", [])
+                    rejected = structured_data.get("rejected", [])
+                    rejected_info = structured_data.get("reason_rejected", {})
+                    
+                    st.success(f"✅ Successfully extracted structured data: {len(approved)} approved labels, {len(rejected)} rejected labels")
+                    
+                    # Show the structured data in an expander
+                    with st.expander("Extracted Structured Data"):
+                        st.json(structured_data)
+                        
                 else:
-                    st.warning("Tier-B response JSON structure is invalid. Falling back to Tier-A candidates.")
-                    st.expander("Invalid JSON Structure").code(str(audit_result))
-                    approved = candidates
-            except json.JSONDecodeError as e:
-                st.error(f"Tier-B returned unparsable JSON: {e}")
-                # Display more details about the error
-                st.expander("JSON Parsing Error Details").info(f"""
-                - Error Message: {str(e)}
-                - Error Position: {e.pos}
-                - Line Number: {audit_response_str.count(chr(10), 0, e.pos) + 1}
-                """)
-                approved = candidates  # Fallback to using all candidates
+                    # Fallback to regex-based extraction
+                    try:
+                        st.warning("Failed to extract with sonar. Falling back to regex parsing...")
+                        
+                        # Extract sections
+                        approved_section_match = re.search(r'APPROVED LABELS:(.*?)(?:REJECTED LABELS:|$)', 
+                                                        audit_response_str, re.DOTALL | re.IGNORECASE)
+                        rejected_section_match = re.search(r'REJECTED LABELS:(.*?)(?:REJECTION REASONS:|$)', 
+                                                        audit_response_str, re.DOTALL | re.IGNORECASE)
+                        reasons_section_match = re.search(r'REJECTION REASONS:(.*?)$', 
+                                                        audit_response_str, re.DOTALL | re.IGNORECASE)
+                        
+                        # Process approved labels
+                        if approved_section_match:
+                            approved_text = approved_section_match.group(1).strip()
+                            approved = [line.strip() for line in approved_text.split('\n') 
+                                        if line.strip() and not line.strip().startswith('#')]
+                        else:
+                            st.warning("Could not find APPROVED LABELS section. Using Tier-A candidates.")
+                            approved = candidates
+                        
+                        # Process rejected labels
+                        if rejected_section_match:
+                            rejected_text = rejected_section_match.group(1).strip()
+                            rejected = [line.strip() for line in rejected_text.split('\n') 
+                                        if line.strip() and not line.strip().startswith('#')]
+                        else:
+                            rejected = []
+                        
+                        # Process rejection reasons
+                        rejected_info = {}
+                        if reasons_section_match:
+                            reasons_text = reasons_section_match.group(1).strip()
+                            reason_lines = [line.strip() for line in reasons_text.split('\n') 
+                                            if line.strip() and not line.strip().startswith('#')]
+                            
+                            for line in reason_lines:
+                                # Try to extract label and reason from lines like "Label: Reason"
+                                parts = line.split(':', 1)
+                                if len(parts) == 2:
+                                    label = parts[0].strip()
+                                    reason = parts[1].strip()
+                                    rejected_info[label] = reason
+                        
+                        st.success(f"✅ Tier-B approved {len(approved)} labels using regex extraction.")
+                        
+                    except Exception as e:
+                        st.error(f"Error parsing structured text from reasoning model: {e}")
+                        st.expander("Error Details").exception(e)
+                        approved = candidates  # Fallback to original candidates
+            
+            else:
+                # JSON parsing for non-reasoning models
+                try:
+                    # First attempt - direct JSON parsing
+                    try:
+                        audit_result = json.loads(audit_response_str)
+                    except json.JSONDecodeError:
+                        # If direct parsing fails, try to extract JSON object pattern
+                        st.warning("Direct JSON parsing failed. Attempting to extract JSON object from response.")
+                        # Look for JSON object pattern in the response {....}
+                        json_match = re.search(r'\{.*\}', audit_response_str, re.DOTALL)
+                        if json_match:
+                            json_str = json_match.group(0)
+                            try:
+                                audit_result = json.loads(json_str)
+                                st.info("Successfully extracted JSON object from response.")
+                            except json.JSONDecodeError:
+                                # If still fails, display detailed error
+                                st.error("Extracted content is not valid JSON.")
+                                st.expander("Extracted Content").code(json_str)
+                                raise
+                        else:
+                            st.error("Could not find JSON object pattern in response.")
+                            raise json.JSONDecodeError("No JSON object found", audit_response_str, 0)
+                    
+                    # Verify expected structure
+                    if isinstance(audit_result, dict) and \
+                    "approved" in audit_result and isinstance(audit_result["approved"], list) and \
+                    "rejected" in audit_result and isinstance(audit_result["rejected"], list) and \
+                    "reason_rejected" in audit_result and isinstance(audit_result["reason_rejected"], dict):
+
+                        approved = [str(lbl).strip().lstrip('# ') for lbl in audit_result["approved"] if isinstance(lbl, str)]
+                        rejected = [str(lbl).strip().lstrip('# ') for lbl in audit_result["rejected"] if isinstance(lbl, str)]
+                        rejected_info = audit_result["reason_rejected"]
+                        st.success(f"✅ Tier-B approved {len(approved)} labels after audit.")
+                    else:
+                        st.warning("Tier-B response JSON structure is invalid. Falling back to Tier-A candidates.")
+                        st.expander("Invalid JSON Structure").code(str(audit_result))
+                        approved = candidates
+                except json.JSONDecodeError as e:
+                    st.error(f"Tier-B returned unparsable JSON: {e}")
+                    # Display more details about the error
+                    st.expander("JSON Parsing Error Details").info(f"""
+                    - Error Message: {str(e)}
+                    - Error Position: {e.pos}
+                    - Line Number: {audit_response_str.count(chr(10), 0, e.pos) + 1}
+                    """)
+                    approved = candidates  # Fallback to using all candidates
         else:
             st.warning("No Tier-B refinement performed. Using Tier-A candidates as final.")
             approved = candidates
