@@ -197,7 +197,9 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
             "tier_a_raw_output": tier_a_raw_output,
             "tier_b_raw_output": tier_b_raw_output,
             "tier_a_timestamp": tier_a_time_str,
-            "tier_b_timestamp": tier_b_time_str
+            "tier_b_timestamp": tier_b_time_str,
+            "tier_a_prompt_id": tier_a_prompt_id,
+            "tier_b_prompt_id": tier_b_prompt_id
         }
         with open(filename, "w") as f:
             json.dump(taxonomy_data, f, indent=2)
@@ -221,7 +223,9 @@ def create_taxonomy(domain, tier_a_model, tier_b_model, max_labels, min_labels, 
             tier_a_raw_output=tier_a_raw_output,
             tier_b_raw_output=tier_b_raw_output,
             tier_a_timestamp=tier_a_timestamp,
-            tier_b_timestamp=tier_b_timestamp
+            tier_b_timestamp=tier_b_timestamp,
+            tier_a_prompt_id=tier_a_prompt_id,
+            tier_b_prompt_id=tier_b_prompt_id
         )
         session.add(taxonomy)
         session.flush()  # Get the ID before committing

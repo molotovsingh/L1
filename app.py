@@ -570,7 +570,9 @@ Return only the JSON object now.
         tier_a_raw_output=resp_A_raw,
         tier_b_raw_output=audit_response_raw,
         tier_a_timestamp=tier_a_timestamp,
-        tier_b_timestamp=tier_b_timestamp
+        tier_b_timestamp=tier_b_timestamp,
+        tier_a_prompt_id=tier_a_prompt_id,
+        tier_b_prompt_id=tier_b_prompt_id
     )
     
     if taxonomy_id:
@@ -972,6 +974,23 @@ def main():
                                 reason = rejection_reasons.get(label, "No reason provided")
                                 st.write(f"- **{label}**: {reason}")
                     
+                    # Display information about custom prompts used (if any)
+                    if 'tier_a_prompt_id' in selected_taxonomy and selected_taxonomy['tier_a_prompt_id']:
+                        try:
+                            tier_a_prompt = db_models.get_custom_prompt(selected_taxonomy['tier_a_prompt_id'])
+                            if tier_a_prompt:
+                                st.info(f"📝 Custom Tier-A Prompt: {tier_a_prompt['name']}")
+                        except Exception as e:
+                            st.warning(f"Could not load Tier-A prompt info: {e}")
+                    
+                    if 'tier_b_prompt_id' in selected_taxonomy and selected_taxonomy['tier_b_prompt_id']:
+                        try:
+                            tier_b_prompt = db_models.get_custom_prompt(selected_taxonomy['tier_b_prompt_id'])
+                            if tier_b_prompt:
+                                st.info(f"📝 Custom Tier-B Prompt: {tier_b_prompt['name']}")
+                        except Exception as e:
+                            st.warning(f"Could not load Tier-B prompt info: {e}")
+                            
                     # Display raw API outputs if available (new feature)
                     if 'tier_a_raw_output' in selected_taxonomy and selected_taxonomy['tier_a_raw_output']:
                         with st.expander("Tier-A Raw Output"):
