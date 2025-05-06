@@ -37,9 +37,15 @@ class Taxonomy(Base):
     api_provider = Column(String(50), default="OpenAI")  # OpenAI or Perplexity
     tier_a_model = Column(String(50))
     tier_b_model = Column(String(50))
-    max_labels = Column(Integer)
-    min_labels = Column(Integer)
+    max_labels = Column(Integer)  # Will use as tier_a_labels in UI
+    min_labels = Column(Integer)  # Will use as tier_b_labels in UI
     deny_list = Column(Text)  # Stored as JSON
+    
+    # New columns for raw output and timestamps
+    tier_a_raw_output = Column(Text)  # Raw output from Tier-A model
+    tier_b_raw_output = Column(Text)  # Raw output from Tier-B model
+    tier_a_timestamp = Column(DateTime)  # When Tier-A API was called
+    tier_b_timestamp = Column(DateTime)  # When Tier-B API was called
     
     # Relationships
     approved_labels = relationship("ApprovedLabel", back_populates="taxonomy", cascade="all, delete-orphan")
