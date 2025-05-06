@@ -474,16 +474,21 @@ def extract_structured_data_with_sonar(text: str, api_key: Optional[str]) -> Opt
     
     # Create a prompt to extract the structured data
     prompt = f"""
-You are a specialized data extraction tool. Extract structured data from the following taxonomy evaluation:
+Extract structured data from the following taxonomy evaluation text. Output ONLY a valid JSON object following the exact structure specified:
 
+TEXT TO PROCESS:
+```
 {text}
+```
 
-Extract and return the following information as a valid JSON object:
-1. A list of approved labels under the key "approved"
-2. A list of rejected labels under the key "rejected"
-3. A dictionary mapping each rejected label to its rejection reason under the key "reason_rejected"
+REQUIRED OUTPUT FORMAT:
+A JSON object with these three keys exactly as shown:
+- "approved": An array of strings (the accepted labels)
+- "rejected": An array of strings (the rejected labels)
+- "reason_rejected": An object mapping each rejected label to its reason
 
-Example output format:
+EXAMPLE OUTPUT:
+```json
 {{
   "approved": ["Model-Launch", "System-Outage", "Regulatory-Action"],
   "rejected": ["AI Research", "Funding Round", "ProductUpdate"],
@@ -493,8 +498,9 @@ Example output format:
     "ProductUpdate": "Merged into Major-Release."
   }}
 }}
+```
 
-Return only the JSON object.
+Extract and format the structure precisely. Return ONLY the JSON object with no other text.
 """
     
     try:
@@ -509,7 +515,7 @@ Return only the JSON object.
         messages = [
             {
                 "role": "system",
-                "content": "You are a specialized data extraction tool that transforms natural language into structured JSON."
+                "content": "You are a specialized data extraction tool that transforms natural language into structured JSON. Return ONLY valid JSON with no explanation, markdown, or other text. The output must be parsable by JSON.parse() directly."
             },
             {
                 "role": "user",
@@ -517,14 +523,14 @@ Return only the JSON object.
             }
         ]
         
-        # Make API call to sonar model with JSON response format
+        # Make API call to sonar model
         response = client.chat.completions.create(
             model="sonar",  # Using sonar for structure extraction
             messages=messages,
             temperature=0.0,
             max_tokens=2048,
-            top_p=1,
-            response_format={"type": "json_object"}  # Force JSON output
+            top_p=1
+            # Perplexity API doesn't support the response_format parameter like OpenAI
         )
         
         # Extract content
@@ -533,8 +539,8 @@ Return only the JSON object.
             if content:
                 # Try to parse the extracted JSON
                 try:
-                    # Since we're using response_format={"type": "json_object"}, 
-                    # we can directly parse the content
+                    # First try direct JSON parsing
+                    # The system message asks for JSON output
                     data = json.loads(content)
                     
                     # Verify the extracted structure
