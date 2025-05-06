@@ -248,7 +248,7 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         # Create system message and user message
         messages = [
             {
-                "role": "system",
+                "role": "system", 
                 "content": "You are a domain taxonomy generator specializing in structured taxonomies and event categorization."
             },
             {
@@ -269,7 +269,7 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
             top_p=1,
         )
         
-        # Capture API call timestamp
+        # Update API call timestamp after receiving response
         api_timestamp = datetime.now()
         
         # Extract content
@@ -282,7 +282,7 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
                 return processed_content, raw_content, api_timestamp
         
         st.error(f"Perplexity API returned an empty or invalid response for Tier-A.")
-        return None, None, None
+        return None, None, api_timestamp
         
     except Exception as e:
         # Use our enhanced error logging function
@@ -299,7 +299,7 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         elif "429" in str(e):
             st.warning("Rate limit exceeded. Try again later.")
         
-        return None
+        return None, None, api_timestamp
 
 
 def extract_structured_data_from_text(text: str, api_key: Optional[str]) -> Optional[Dict]:
@@ -388,7 +388,7 @@ Make sure the approved and rejected lists are complete and accurate based on the
         return None
 
 
-def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: str = "sonar-reasoning") -> Optional[str]:
+def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: str = "sonar-reasoning") -> Tuple[Optional[str], Optional[str], Optional[datetime]]:
     """
     Call Perplexity API for Tier-B refinement.
     
@@ -398,11 +398,14 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
         model_name: Perplexity model to use
         
     Returns:
-        str or None: API response content or None on failure
+        Tuple containing:
+        - str or None: Processed API response content or None on failure
+        - str or None: Raw API response content for logging/debugging
+        - datetime or None: Timestamp when the API was called
     """
     if not api_key:
         st.error("PERPLEXITY_API_KEY required but not found in environment variables.")
-        return None
+        return None, None, None
     
     # Check if key has proper format
     if not api_key.startswith("pplx-"):
@@ -412,6 +415,9 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
     # The online search capability is built into models like sonar and sonar-pro
     
     st.info(f"🔹 Calling Tier-B (Perplexity) model ({model_name})...")
+    
+    # Record the API call timestamp at the start
+    api_timestamp = datetime.now()
     
     try:
         client = OpenAI(
@@ -443,14 +449,20 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
             top_p=1,
         )
         
+        # Update API call timestamp after receiving response
+        api_timestamp = datetime.now()
+        
         # Extract content
         if hasattr(response, 'choices') and len(response.choices) > 0:
             content = response.choices[0].message.content
             if content:
-                return content.strip()
+                # Store both the processed content and raw response
+                processed_content = content.strip()
+                raw_content = content  # Store the raw response for debugging/analysis
+                return processed_content, raw_content, api_timestamp
         
         st.error(f"Perplexity API returned an empty or invalid response for Tier-B.")
-        return None
+        return None, None, api_timestamp
         
     except Exception as e:
         # Use our enhanced error logging function
@@ -467,7 +479,7 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
         elif "429" in str(e):
             st.warning("Rate limit exceeded. Try again later.")
         
-        return None
+        return None, None, api_timestamp
 
 
 def extract_structured_data_with_sonar(text: str, api_key: Optional[str]) -> Optional[Dict]:

@@ -176,7 +176,11 @@ Generate the JSON array now.
         st.info(f"🔹 Generating Tier‑A candidates via {api_provider} API...")
         with st.spinner(f"Waiting for {api_provider} API response for generation..."):
             candidates: List[str] = []
-            resp_A = call_perplexity_api.call_perplexity_api_tier_a(prompt_A, perplexity_api_key, tier_a_model)
+            # Now returns tuple of (processed_content, raw_content, timestamp)
+            resp_A_processed, resp_A_raw, tier_a_timestamp = call_perplexity_api.call_perplexity_api_tier_a(
+                prompt_A, perplexity_api_key, tier_a_model
+            )
+            resp_A = resp_A_processed  # Use the processed content for compatibility with existing code
 
     if resp_A:
         # Display raw response in expander
@@ -298,7 +302,11 @@ Return only the JSON object now.
             )
             
             with st.spinner(f"Waiting for {api_provider} API response for refinement..."):
-                audit_response_str = call_perplexity_api.call_perplexity_api_tier_b(prompt_B, perplexity_api_key, tier_b_selected_model)
+                # Now returns tuple of (processed_content, raw_content, timestamp)
+                audit_response_processed, audit_response_raw, tier_b_timestamp = call_perplexity_api.call_perplexity_api_tier_b(
+                    prompt_B, perplexity_api_key, tier_b_selected_model
+                )
+                audit_response_str = audit_response_processed  # Use processed content for compatibility
 
         if audit_response_str:
             # Display raw response in expander
@@ -482,7 +490,7 @@ Return only the JSON object now.
     except Exception as e:
         st.error(f"Failed to save taxonomy to file: {e}")
     
-    # Save to database with improved error handling
+    # Save to database with improved error handling and raw outputs
     taxonomy_id = db_models.create_taxonomy(
         domain=domain,
         tier_a_model=tier_a_model,
@@ -493,7 +501,11 @@ Return only the JSON object now.
         approved_labels=approved,
         rejected_labels=rejected if rejected else [],
         rejection_reasons=rejected_info if rejected_info else {},
-        api_provider=api_provider
+        api_provider=api_provider,
+        tier_a_raw_output=resp_A_raw,
+        tier_b_raw_output=audit_response_raw,
+        tier_a_timestamp=tier_a_timestamp,
+        tier_b_timestamp=tier_b_timestamp
     )
     
     if taxonomy_id:
