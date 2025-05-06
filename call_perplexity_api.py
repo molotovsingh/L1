@@ -468,7 +468,6 @@ def extract_structured_data_with_sonar(text: str, api_key: Optional[str]) -> Opt
     Returns:
         Dict or None: Structured data extracted from text
     """
-    import re
     if not api_key:
         st.error("PERPLEXITY_API_KEY required but not found in environment variables.")
         return None

@@ -311,6 +311,9 @@ Return only the JSON object now.
                 # First, try post-processing with sonar to extract structured data
                 st.info("Processing natural language output from reasoning model...")
                 
+                # Ensure we have the regex module imported
+                import re
+                
                 # Use sonar to extract structured data from the natural language response
                 structured_data = call_perplexity_api.extract_structured_data_with_sonar(
                     audit_response_str, 
