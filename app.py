@@ -488,8 +488,8 @@ def main():
                         if tier_a_model_option == "custom":
                             tier_a_custom_model = st.text_input(
                                 "Custom Tier-A Model Name",
-                                value="sonar-medium-online",
-                                help="Enter a valid Perplexity model name (e.g., sonar-medium-online, codestral-2305)"
+                                value="sonar-pro",
+                                help="Enter a valid Perplexity model name (e.g., sonar-pro, codestral-2305, r1-1776)"
                             )
                             tier_a_model = tier_a_custom_model
                         else:
@@ -542,8 +542,8 @@ def main():
                         if tier_b_model_option == "custom":
                             tier_b_custom_model = st.text_input(
                                 "Custom Tier-B Model Name",
-                                value="sonar-medium-online",
-                                help="Enter a valid Perplexity model name (e.g., sonar-medium-online, codestral-2305)"
+                                value="sonar-reasoning-pro",
+                                help="Enter a valid Perplexity model name (e.g., sonar-reasoning-pro, codestral-2305, r1-1776)"
                             )
                             tier_b_model = tier_b_custom_model
                         else:
