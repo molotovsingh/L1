@@ -119,7 +119,7 @@ Return only the JSON object now.
     return prompt
 
 
-def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: str = "sonar-medium") -> Optional[str]:
+def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: str = "sonar") -> Optional[str]:
     """
     Call Perplexity API for Tier-A candidate generation.
     
@@ -139,23 +139,19 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
     if not api_key.startswith("pplx-"):
         st.warning("Perplexity API key doesn't have the expected format (should start with 'pplx-')")
     
-    # Models map (as of May 2025)
-    models_map = {
-        "sonar-small": "sonar-small-online", 
-        "sonar-medium": "sonar-medium-online",
-        "sonar-large": "sonar-large-online", 
-        "sonar-reasoning": "sonar-medium-online",  # Default reasoning model
-    }
+    # Handle online vs offline models
+    # Models that don't use web search
+    offline_models = ["r1-1776"]
     
-    # Map model name
-    if model_name in models_map:
-        model_to_use = models_map[model_name]
-    else:
-        model_to_use = model_name
+    # Models that typically use web search (add -online suffix)
+    search_models = ["sonar", "sonar-pro"]
     
-    # Add -online suffix if missing (required for web search capability)
-    if not model_to_use.endswith("-online") and "codestral" not in model_to_use.lower():
-        model_to_use = f"{model_to_use}-online"
+    # Use the model name directly from the Perplexity documentation
+    model_to_use = model_name
+    
+    # Add -online suffix only for search models that don't already have it
+    if model_name in search_models and not model_name.endswith("-online"):
+        model_to_use = f"{model_name}-online"
     
     st.info(f"🔹 Calling Tier-A (Perplexity) model ({model_to_use})...")
     
@@ -209,7 +205,7 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         return None
 
 
-def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: str = "sonar-medium") -> Optional[str]:
+def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: str = "sonar-reasoning") -> Optional[str]:
     """
     Call Perplexity API for Tier-B refinement.
     
@@ -229,23 +225,19 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
     if not api_key.startswith("pplx-"):
         st.warning("Perplexity API key doesn't have the expected format (should start with 'pplx-')")
     
-    # Models map (as of May 2025)
-    models_map = {
-        "sonar-small": "sonar-small-online", 
-        "sonar-medium": "sonar-medium-online",
-        "sonar-large": "sonar-large-online", 
-        "sonar-reasoning": "sonar-medium-online",  # Default reasoning model
-    }
+    # Handle online vs offline models
+    # Models that don't use web search
+    offline_models = ["r1-1776"]
     
-    # Map model name
-    if model_name in models_map:
-        model_to_use = models_map[model_name]
-    else:
-        model_to_use = model_name
+    # Models that typically use web search (add -online suffix)
+    search_models = ["sonar", "sonar-pro"]
     
-    # Add -online suffix if missing (required for web search capability)
-    if not model_to_use.endswith("-online") and "codestral" not in model_to_use.lower():
-        model_to_use = f"{model_to_use}-online"
+    # Use the model name directly from the Perplexity documentation
+    model_to_use = model_name
+    
+    # Add -online suffix only for search models that don't already have it
+    if model_name in search_models and not model_name.endswith("-online"):
+        model_to_use = f"{model_name}-online"
     
     st.info(f"🔹 Calling Tier-B (Perplexity) model ({model_to_use})...")
     

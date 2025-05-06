@@ -63,18 +63,22 @@ DEFAULT_OPENAI_TIER_B_OPTIONS: List[str] = [
 
 # Perplexity models (as of May 2025)
 DEFAULT_PERPLEXITY_TIER_A_OPTIONS: List[str] = [
-    "sonar-medium",       # Good balance of quality and speed
-    "sonar-large",        # Higher quality but slower
-    "sonar-small",        # Faster but lower quality
-    "sonar-reasoning",    # Enhanced reasoning capabilities
+    "sonar",              # Lightweight, cost-effective search model
+    "sonar-pro",          # Advanced search with grounding
+    "sonar-deep-research", # Expert-level research model
+    "sonar-reasoning",    # Fast, real-time reasoning model
+    "sonar-reasoning-pro", # Premier reasoning with Chain of Thought
+    "r1-1776",            # Offline model (no search)
     "custom"              # Allow user to specify a custom model
 ]
 
 DEFAULT_PERPLEXITY_TIER_B_OPTIONS: List[str] = [
-    "sonar-medium",       # Good balance of quality and speed
-    "sonar-large",        # Higher quality but slower
-    "sonar-small",        # Faster but lower quality
-    "sonar-reasoning",    # Enhanced reasoning capabilities
+    "sonar-reasoning",    # Fast, real-time reasoning (recommended for refinement)
+    "sonar-reasoning-pro", # Premier reasoning with Chain of Thought
+    "sonar-deep-research", # Expert-level research model
+    "sonar",              # Lightweight, cost-effective search model
+    "sonar-pro",          # Advanced search with grounding
+    "r1-1776",            # Offline model (no search)
     "custom",             # Allow user to specify a custom model
     "None/Offline"        # Skip Tier-B processing
 ]
@@ -743,31 +747,49 @@ def main():
             st.markdown("""
             ## Perplexity AI Models
             
-            Perplexity offers several models with different capabilities and performance characteristics:
+            Perplexity offers several specialized model categories:
             
-            ### sonar-small-online
-            - Fastest response time
-            - Good for simple tasks and quick generation
-            - Lower reasoning capabilities than larger models
+            ### Search Models
             
-            ### sonar-medium-online
-            - Balanced performance and speed
-            - Good reasoning capabilities
-            - Recommended for most taxonomy generation tasks
+            #### sonar
+            - Lightweight, cost-effective search model
+            - Good for simple factual queries and basic information retrieval
+            - Faster response times
             
-            ### sonar-large-online
-            - Most powerful model with advanced reasoning
-            - Slower response time
-            - Best for complex domains requiring deep understanding
+            #### sonar-pro
+            - Advanced search with grounding capabilities
+            - Supports complex queries and follow-ups
+            - More comprehensive information retrieval
             
-            ### sonar-reasoning
-            - Optimized for structured reasoning tasks
-            - Good choice for taxonomy refinement/validation
-            - Similar to medium model but with enhanced reasoning capabilities
+            ### Research Models
+            
+            #### sonar-deep-research
+            - Expert-level research model
+            - Conducts exhaustive searches and generates comprehensive reports
+            - Ideal for in-depth analysis with exhaustive web research
+            
+            ### Reasoning Models
+            
+            #### sonar-reasoning
+            - Fast, real-time reasoning model
+            - Designed for quick problem-solving with search
+            - Recommended for taxonomy refinement tasks
+            
+            #### sonar-reasoning-pro
+            - Premier reasoning model powered by DeepSeek R1
+            - Features Chain of Thought (CoT) capabilities
+            - Best for complex analyses requiring step-by-step thinking
+            
+            ### Offline Models
+            
+            #### r1-1776
+            - DeepSeek R1 version for unconnected, unbiased, factual responses
+            - No web search capabilities
+            - Ideal for creative content generation without search interference
             
             ### Notes on Perplexity models:
-            - All models support online search, indicated by the "-online" suffix
-            - Perplexity models generally produce more reliable results than o-series models in accounts without special permissions
+            - Search models typically have an "-online" suffix when using web search
+            - Models with "reasoning" in their name are optimized for structured taxonomy tasks
             - Response format is standardized across all models
             """)
         
