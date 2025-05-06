@@ -40,7 +40,7 @@ def log_api_error(error: Exception, model_name: str, api_key: Optional[str], is_
     # Log to console for debugging
     logger.error(f"Perplexity API Error ({tier}): {error_str}")
     
-    # Display UI error messages
+    # Display UI error messages for specific error types
     if "400" in error_str:
         st.warning(f"Bad Request Error in {tier}: The API request format may be incorrect.")
         st.info(f"""
@@ -61,7 +61,6 @@ Check that you're using a valid Perplexity model name. Common models include:
         
         # Print the traceback for more details
         st.expander("View Error Traceback", expanded=False).code(traceback.format_exc())
-    OPENAI_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -205,6 +204,9 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
             }
         ]
         
+        # Log model and API call info before making the request
+        logger.info(f"Calling Perplexity API (Tier-A) with model: {model_name}")
+        
         # Make API call with exact parameter format matching Perplexity documentation
         response = client.chat.completions.create(
             model=model_name,
@@ -224,7 +226,11 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         return None
         
     except Exception as e:
-        st.error(f"Error calling Perplexity API: {e}")
+        # Use our enhanced error logging function
+        log_api_error(e, model_name, api_key, is_tier_a=True)
+        
+        # Basic error messaging
+        st.error(f"Error calling Perplexity API (Tier-A): {str(e)}")
         
         # Provide helpful error messages based on error type
         if "401" in str(e):
@@ -280,6 +286,9 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
             }
         ]
         
+        # Log model and API call info before making the request
+        logger.info(f"Calling Perplexity API (Tier-B) with model: {model_name}")
+        
         # Make API call with exact parameter format matching Perplexity documentation
         response = client.chat.completions.create(
             model=model_name,
@@ -299,7 +308,11 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
         return None
         
     except Exception as e:
-        st.error(f"Error calling Perplexity API: {e}")
+        # Use our enhanced error logging function
+        log_api_error(e, model_name, api_key, is_tier_a=False)
+        
+        # Basic error messaging
+        st.error(f"Error calling Perplexity API (Tier-B): {str(e)}")
         
         # Provide helpful error messages based on error type
         if "401" in str(e):
