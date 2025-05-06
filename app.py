@@ -184,6 +184,7 @@ Generate the JSON array now.
             st.code(resp_A, language="json")
 
         # Attempt to extract JSON - LLMs sometimes add preamble/postamble text
+        import re  # Import re here to ensure it's available in this scope
         json_match = re.search(r'\[.*?\]', resp_A, re.DOTALL | re.IGNORECASE)  # Find bracketed list more robustly
         if json_match:
             json_str = json_match.group(0)
@@ -394,6 +395,7 @@ Return only the JSON object now.
                         # If direct parsing fails, try to extract JSON object pattern
                         st.warning("Direct JSON parsing failed. Attempting to extract JSON object from response.")
                         # Look for JSON object pattern in the response {....}
+                        import re  # Ensure re is available in this scope
                         json_match = re.search(r'\{.*\}', audit_response_str, re.DOTALL)
                         if json_match:
                             json_str = json_match.group(0)
