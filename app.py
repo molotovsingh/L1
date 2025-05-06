@@ -101,7 +101,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # ----- Core Taxonomy Generation Logic -----
 def generate_taxonomy(domain: str, tier_a_model: str, tier_b_model: str, max_labels: int, min_labels: int, 
                       deny_list: set, out_dir: Path, api_provider: str = "OpenAI", 
-                      openai_api_key: Optional[str] = None, perplexity_api_key: Optional[str] = None):
+                      openai_api_key: Optional[str] = None, perplexity_api_key: Optional[str] = None,
+                      tier_a_prompt_id: Optional[str] = None, tier_b_prompt_id: Optional[str] = None,
+                      use_custom_prompts: bool = False):
     """
     The main function to generate and validate the taxonomy using APIs.
     
@@ -116,6 +118,9 @@ def generate_taxonomy(domain: str, tier_a_model: str, tier_b_model: str, max_lab
         api_provider: Which API provider to use ("OpenAI" or "Perplexity")
         openai_api_key: OpenAI API key (if api_provider is "OpenAI")
         perplexity_api_key: Perplexity API key (if api_provider is "Perplexity")
+        tier_a_prompt_id: ID of custom Tier-A prompt to use (if use_custom_prompts is True)
+        tier_b_prompt_id: ID of custom Tier-B prompt to use (if use_custom_prompts is True)
+        use_custom_prompts: Whether to use custom prompts from the database
         
     Returns:
         Tuple of approved labels, rejected labels, and rejection reasons
@@ -566,7 +571,7 @@ def main():
             st.warning("⚠️ PERPLEXITY_API_KEY not found. Only OpenAI API will be available.")
     
     # Create tabs for different sections
-    tab1, tab2, tab3, tab4 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies", "Model Info", "Debug Prompts"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Generate Taxonomy", "View Previous Taxonomies", "Model Info", "Debug Prompts", "Prompt Editor"])
     
     with tab1:
         st.header("Generate New Taxonomy")
@@ -593,6 +598,85 @@ def main():
             
             # Advanced settings expander
             with st.expander("Advanced Settings"):
+                # Custom prompts section
+                st.subheader("Custom Prompts")
+                
+                # Check if we have custom prompts in the database
+                has_custom_prompts = False
+                try:
+                    all_prompts = db_models.get_custom_prompts(api_provider=api_provider)
+                    if all_prompts:
+                        has_custom_prompts = True
+                except Exception as e:
+                    st.warning(f"Could not check for custom prompts: {e}")
+                
+                # Option to use custom prompts
+                use_custom_prompts = st.checkbox(
+                    "Use Custom Prompts", 
+                    value=False,
+                    help="Use custom prompts from the Prompt Editor instead of the default prompts",
+                    disabled=not has_custom_prompts
+                )
+                
+                if use_custom_prompts:
+                    if not has_custom_prompts:
+                        st.warning("No custom prompts found. Create some in the Prompt Editor tab first.")
+                    else:
+                        col_a, col_b = st.columns(2)
+                        
+                        with col_a:
+                            # Get Tier-A prompts
+                            tier_a_prompts = db_models.get_custom_prompts(tier="A", api_provider=api_provider)
+                            tier_a_prompt_options = [(p["name"], p["id"]) for p in tier_a_prompts]
+                            
+                            # Dropdown for Tier-A prompt
+                            selected_tier_a_name, selected_tier_a_id = st.selectbox(
+                                "Tier-A Prompt",
+                                options=tier_a_prompt_options,
+                                index=0,
+                                format_func=lambda x: x[0],  # Display just the name
+                                key="generate_tier_a_prompt_selector",
+                                help="Select which Tier-A prompt version to use"
+                            )
+                        
+                        with col_b:
+                            # Get Tier-B prompts
+                            tier_b_prompts = db_models.get_custom_prompts(tier="B", api_provider=api_provider)
+                            tier_b_prompt_options = [(p["name"], p["id"]) for p in tier_b_prompts]
+                            
+                            # Dropdown for Tier-B prompt
+                            selected_tier_b_name, selected_tier_b_id = st.selectbox(
+                                "Tier-B Prompt",
+                                options=tier_b_prompt_options,
+                                index=0,
+                                format_func=lambda x: x[0],  # Display just the name
+                                key="generate_tier_b_prompt_selector",
+                                help="Select which Tier-B prompt version to use"
+                            )
+                
+                # Hidden fields to store custom prompt IDs
+                st.text_input(
+                    "Tier-A Prompt ID", 
+                    value=selected_tier_a_id if use_custom_prompts and 'selected_tier_a_id' in locals() else "", 
+                    key="tier_a_prompt_id_hidden", 
+                    label_visibility="collapsed"
+                )
+                st.text_input(
+                    "Tier-B Prompt ID", 
+                    value=selected_tier_b_id if use_custom_prompts and 'selected_tier_b_id' in locals() else "", 
+                    key="tier_b_prompt_id_hidden", 
+                    label_visibility="collapsed"
+                )
+                st.text_input(
+                    "Use Custom Prompts", 
+                    value=str(use_custom_prompts), 
+                    key="use_custom_prompts_hidden", 
+                    label_visibility="collapsed"
+                )
+                
+                st.markdown("---")
+                st.subheader("Model Selection")
+                
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -1061,6 +1145,426 @@ Return only the JSON object now.
         - The actual prompts used during taxonomy generation will use the exact domain, settings, and candidates from your input.
         - The sample candidates list above is for demonstration purposes only.
         - When using Perplexity's reasoning models, additional processing is applied to extract structured data from the natural language responses.
+        """)
+    
+    with tab5:
+        st.header("Prompt Editor")
+        st.markdown("Create, edit, and test custom prompt versions for different taxonomy generation steps.")
+        
+        # First, let's initialize default prompts if needed
+        if 'prompt_init_run' not in st.session_state:
+            try:
+                # Check if we have system prompts in the database
+                system_prompts = db_models.get_custom_prompts()
+                has_system_prompts = any(prompt.get("is_system") for prompt in system_prompts)
+                
+                if not has_system_prompts:
+                    st.info("Initializing default prompts... This will only happen once.")
+                    # Use the initialize_default_prompts.py script
+                    import initialize_default_prompts
+                    initialize_default_prompts.main()
+                    st.success("Default prompt templates have been loaded.")
+                
+                # Mark initialization as complete
+                st.session_state.prompt_init_run = True
+            except Exception as e:
+                st.error(f"Error initializing default prompts: {e}")
+                st.session_state.prompt_init_run = False
+        
+        # API provider selection for prompts
+        prompt_api_provider = st.selectbox(
+            "API Provider",
+            options=API_PROVIDERS,
+            index=0,
+            key="prompt_editor_api_provider",
+            help="Select which API provider's prompts to view and edit"
+        )
+        
+        # Create two columns for the two tiers
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Tier-A Prompts (Candidate Generation)")
+            
+            # Get all Tier-A prompts for the selected provider
+            tier_a_prompts = db_models.get_custom_prompts(tier="A", api_provider=prompt_api_provider)
+            
+            # Extract names and IDs for the dropdown
+            tier_a_prompt_options = [(p["name"], p["id"]) for p in tier_a_prompts]
+            if not tier_a_prompt_options:
+                tier_a_prompt_options = [("No prompts found", None)]
+            
+            # Default to the first option
+            default_index = 0
+            
+            # Dropdown to select which prompt version to view/edit
+            tier_a_selected_name, tier_a_selected_id = st.selectbox(
+                "Select Prompt Version",
+                options=tier_a_prompt_options,
+                index=default_index,
+                format_func=lambda x: x[0],  # Display just the name
+                key="tier_a_prompt_selector"
+            )
+            
+            # If no prompt is selected or no prompts exist
+            if tier_a_selected_id is None:
+                st.warning("No Tier-A prompts found for this provider. Initialize the app to create default prompts.")
+                tier_a_content = ""
+                tier_a_description = ""
+                is_system_a = False
+            else:
+                # Get the selected prompt details
+                selected_prompt_a = db_models.get_custom_prompt(tier_a_selected_id)
+                if selected_prompt_a:
+                    tier_a_content = selected_prompt_a["content"]
+                    tier_a_description = selected_prompt_a.get("description", "")
+                    is_system_a = selected_prompt_a.get("is_system", False)
+                else:
+                    tier_a_content = ""
+                    tier_a_description = ""
+                    is_system_a = False
+            
+            # Display whether this is a system prompt
+            if is_system_a:
+                st.info("This is a system prompt (read-only). To make changes, save as a new version.")
+            
+            # Text area for prompt content (read-only if it's a system prompt)
+            tier_a_edited_content = st.text_area(
+                "Prompt Content",
+                value=tier_a_content,
+                height=300,
+                disabled=is_system_a,
+                key="tier_a_prompt_content"
+            )
+            
+            # Description field (read-only if it's a system prompt)
+            tier_a_edited_description = st.text_area(
+                "Description",
+                value=tier_a_description,
+                height=100,
+                disabled=is_system_a,
+                key="tier_a_prompt_description",
+                help="Add notes about what this prompt version does differently"
+            )
+            
+            # Buttons for Tier-A prompt actions
+            a_col1, a_col2, a_col3 = st.columns(3)
+            
+            with a_col1:
+                # Save as new version button
+                if st.button("Save as New Version", key="tier_a_save_new"):
+                    new_name = f"Custom {prompt_api_provider} Tier-A Prompt {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    new_id = db_models.create_custom_prompt(
+                        name=new_name,
+                        tier="A",
+                        api_provider=prompt_api_provider,
+                        content=tier_a_edited_content,
+                        description=tier_a_edited_description,
+                        is_system=False
+                    )
+                    if new_id:
+                        st.success(f"New prompt version created with ID: {new_id}")
+                        # Refresh to show the new version in the dropdown
+                        st.rerun()
+                    else:
+                        st.error("Failed to create new prompt version.")
+            
+            with a_col2:
+                # Update button (only enabled for non-system prompts)
+                update_disabled = is_system_a or tier_a_selected_id is None
+                if st.button("Update Current", key="tier_a_update", disabled=update_disabled):
+                    if db_models.update_custom_prompt(
+                        prompt_id=tier_a_selected_id,
+                        content=tier_a_edited_content,
+                        description=tier_a_edited_description
+                    ):
+                        st.success("Prompt updated successfully.")
+                    else:
+                        st.error("Failed to update prompt.")
+            
+            with a_col3:
+                # Delete button (only enabled for non-system prompts)
+                delete_disabled = is_system_a or tier_a_selected_id is None
+                if st.button("Delete Version", key="tier_a_delete", disabled=delete_disabled):
+                    if db_models.delete_custom_prompt(tier_a_selected_id):
+                        st.success("Prompt deleted successfully.")
+                        # Refresh to update the dropdown
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete prompt.")
+        
+        with col2:
+            st.subheader("Tier-B Prompts (Refinement)")
+            
+            # Get all Tier-B prompts for the selected provider
+            tier_b_prompts = db_models.get_custom_prompts(tier="B", api_provider=prompt_api_provider)
+            
+            # Extract names and IDs for the dropdown
+            tier_b_prompt_options = [(p["name"], p["id"]) for p in tier_b_prompts]
+            if not tier_b_prompt_options:
+                tier_b_prompt_options = [("No prompts found", None)]
+            
+            # Default to the first option
+            default_index = 0
+            
+            # Dropdown to select which prompt version to view/edit
+            tier_b_selected_name, tier_b_selected_id = st.selectbox(
+                "Select Prompt Version",
+                options=tier_b_prompt_options,
+                index=default_index,
+                format_func=lambda x: x[0],  # Display just the name
+                key="tier_b_prompt_selector"
+            )
+            
+            # If no prompt is selected or no prompts exist
+            if tier_b_selected_id is None:
+                st.warning("No Tier-B prompts found for this provider. Initialize the app to create default prompts.")
+                tier_b_content = ""
+                tier_b_description = ""
+                is_system_b = False
+            else:
+                # Get the selected prompt details
+                selected_prompt_b = db_models.get_custom_prompt(tier_b_selected_id)
+                if selected_prompt_b:
+                    tier_b_content = selected_prompt_b["content"]
+                    tier_b_description = selected_prompt_b.get("description", "")
+                    is_system_b = selected_prompt_b.get("is_system", False)
+                else:
+                    tier_b_content = ""
+                    tier_b_description = ""
+                    is_system_b = False
+            
+            # Display whether this is a system prompt
+            if is_system_b:
+                st.info("This is a system prompt (read-only). To make changes, save as a new version.")
+            
+            # Text area for prompt content (read-only if it's a system prompt)
+            tier_b_edited_content = st.text_area(
+                "Prompt Content",
+                value=tier_b_content,
+                height=300,
+                disabled=is_system_b,
+                key="tier_b_prompt_content"
+            )
+            
+            # Description field (read-only if it's a system prompt)
+            tier_b_edited_description = st.text_area(
+                "Description",
+                value=tier_b_description,
+                height=100,
+                disabled=is_system_b,
+                key="tier_b_prompt_description",
+                help="Add notes about what this prompt version does differently"
+            )
+            
+            # Buttons for Tier-B prompt actions
+            b_col1, b_col2, b_col3 = st.columns(3)
+            
+            with b_col1:
+                # Save as new version button
+                if st.button("Save as New Version", key="tier_b_save_new"):
+                    new_name = f"Custom {prompt_api_provider} Tier-B Prompt {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    new_id = db_models.create_custom_prompt(
+                        name=new_name,
+                        tier="B",
+                        api_provider=prompt_api_provider,
+                        content=tier_b_edited_content,
+                        description=tier_b_edited_description,
+                        is_system=False
+                    )
+                    if new_id:
+                        st.success(f"New prompt version created with ID: {new_id}")
+                        # Refresh to show the new version in the dropdown
+                        st.rerun()
+                    else:
+                        st.error("Failed to create new prompt version.")
+            
+            with b_col2:
+                # Update button (only enabled for non-system prompts)
+                update_disabled = is_system_b or tier_b_selected_id is None
+                if st.button("Update Current", key="tier_b_update", disabled=update_disabled):
+                    if db_models.update_custom_prompt(
+                        prompt_id=tier_b_selected_id,
+                        content=tier_b_edited_content,
+                        description=tier_b_edited_description
+                    ):
+                        st.success("Prompt updated successfully.")
+                    else:
+                        st.error("Failed to update prompt.")
+            
+            with b_col3:
+                # Delete button (only enabled for non-system prompts)
+                delete_disabled = is_system_b or tier_b_selected_id is None
+                if st.button("Delete Version", key="tier_b_delete", disabled=delete_disabled):
+                    if db_models.delete_custom_prompt(tier_b_selected_id):
+                        st.success("Prompt deleted successfully.")
+                        # Refresh to update the dropdown
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete prompt.")
+        
+        # Test section with sample configuration
+        st.subheader("Test Prompt")
+        
+        with st.expander("Test Configuration", expanded=False):
+            test_domain = st.text_input("Test Domain", value="Cybersecurity", key="prompt_test_domain")
+            test_max_labels = st.slider("Tier-A Target Labels", min_value=5, max_value=15, value=DEFAULT_MAX_LABELS, key="prompt_test_max_labels")
+            test_min_labels = st.slider("Tier-B Final Labels", min_value=3, max_value=12, value=DEFAULT_MIN_LABELS, key="prompt_test_min_labels")
+            test_deny_list = st.text_area("Deny List (one term per line)", value=DEFAULT_DENY_LIST, key="prompt_test_deny_list")
+            
+            # Process deny list
+            test_deny_set = set(line.strip() for line in test_deny_list.split('\n') if line.strip())
+            
+            # Tier selection for testing
+            test_tier = st.radio("Test Which Tier?", options=["Tier-A", "Tier-B", "Both"], index=0, key="prompt_test_tier")
+            
+            # Sample candidates for Tier-B testing
+            if test_tier in ["Tier-B", "Both"]:
+                test_candidates = st.text_area(
+                    "Sample Candidates for Tier-B (one per line)", 
+                    value="Vulnerability-Disclosure\nData-Breach\nRansomware-Attack\nSystem-Compromise\nPatch-Release\nZero-Day-Exploit\nMalware-Detection\nNetwork-Intrusion\nPhishing-Campaign\nIdentity-Theft",
+                    key="prompt_test_candidates",
+                    height=150
+                )
+                candidates_list = [c.strip() for c in test_candidates.split('\n') if c.strip()]
+            else:
+                candidates_list = []
+            
+            # API keys
+            test_openai_key = st.text_input("OpenAI API Key (optional)", value="", key="prompt_test_openai_key", type="password")
+            test_perplexity_key = st.text_input("Perplexity API Key (optional)", value="", key="prompt_test_perplexity_key", type="password")
+            
+            # Use environment variables if not provided
+            if not test_openai_key:
+                test_openai_key = openai_api_key
+            if not test_perplexity_key:
+                test_perplexity_key = perplexity_api_key
+        
+        # Test button
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            test_button = st.button("Test Prompt", key="prompt_test_button")
+        
+        if test_button:
+            if test_tier == "Tier-A" or test_tier == "Both":
+                st.subheader("Tier-A Test Results")
+                if tier_a_selected_id is None:
+                    st.error("Please select a valid Tier-A prompt to test.")
+                else:
+                    # Call the API with the selected prompt
+                    st.info(f"Sending Tier-A prompt to {prompt_api_provider} API...")
+                    
+                    # Replace template variables in the prompt
+                    formatted_prompt = tier_a_edited_content
+                    formatted_prompt = formatted_prompt.replace("{{domain}}", test_domain)
+                    formatted_prompt = formatted_prompt.replace("{{max_labels}}", str(test_max_labels))
+                    formatted_prompt = formatted_prompt.replace("{{min_labels}}", str(test_min_labels))
+                    formatted_prompt = formatted_prompt.replace("{{deny_list}}", ", ".join(test_deny_set))
+                    
+                    # Show the formatted prompt
+                    with st.expander("Formatted Prompt"):
+                        st.code(formatted_prompt, language="text")
+                    
+                    try:
+                        if prompt_api_provider == "OpenAI":
+                            # Test with default model to ensure it works
+                            test_model = "gpt-3.5-turbo"  # Use a reliable model for testing
+                            with st.spinner(f"Calling OpenAI API with model {test_model}..."):
+                                response, raw_response, timestamp = call_apis.call_tier_a_api(
+                                    formatted_prompt, 
+                                    test_openai_key,
+                                    test_model
+                                )
+                        else:  # Perplexity
+                            test_model = "sonar"  # Use standard model for testing
+                            with st.spinner(f"Calling Perplexity API with model {test_model}..."):
+                                response, raw_response, timestamp = call_perplexity_api.call_perplexity_api_tier_a(
+                                    formatted_prompt, 
+                                    test_perplexity_key,
+                                    test_model
+                                )
+                        
+                        if response:
+                            st.success("✅ Tier-A prompt test successful!")
+                            st.json(response)
+                            candidates_list = response if isinstance(response, list) else []
+                        else:
+                            st.error("❌ API call succeeded but returned empty or invalid response.")
+                            if raw_response:
+                                st.expander("Raw API Response").code(raw_response, language="json")
+                    except Exception as e:
+                        st.error(f"❌ Error testing Tier-A prompt: {e}")
+            
+            if test_tier == "Tier-B" or test_tier == "Both":
+                st.subheader("Tier-B Test Results")
+                if tier_b_selected_id is None:
+                    st.error("Please select a valid Tier-B prompt to test.")
+                elif not candidates_list:
+                    st.error("No candidate labels available for Tier-B testing.")
+                else:
+                    # Call the API with the selected prompt
+                    st.info(f"Sending Tier-B prompt to {prompt_api_provider} API...")
+                    
+                    # Replace template variables in the prompt
+                    formatted_prompt = tier_b_edited_content
+                    formatted_prompt = formatted_prompt.replace("{{domain}}", test_domain)
+                    formatted_prompt = formatted_prompt.replace("{{candidates_json}}", json.dumps(candidates_list))
+                    formatted_prompt = formatted_prompt.replace("{{max_labels}}", str(test_max_labels))
+                    formatted_prompt = formatted_prompt.replace("{{min_labels}}", str(test_min_labels))
+                    formatted_prompt = formatted_prompt.replace("{{deny_list}}", ", ".join(test_deny_set))
+                    
+                    # Show the formatted prompt
+                    with st.expander("Formatted Prompt"):
+                        st.code(formatted_prompt, language="text")
+                    
+                    try:
+                        if prompt_api_provider == "OpenAI":
+                            # Test with default model to ensure it works
+                            test_model = "gpt-3.5-turbo"  # Use a reliable model for testing
+                            with st.spinner(f"Calling OpenAI API with model {test_model}..."):
+                                response, raw_response, timestamp = call_apis.call_openai_api(
+                                    formatted_prompt, 
+                                    test_openai_key,
+                                    test_model
+                                )
+                        else:  # Perplexity
+                            test_model = "sonar-reasoning"  # Use reasoning model for better results
+                            with st.spinner(f"Calling Perplexity API with model {test_model}..."):
+                                response, raw_response, timestamp = call_perplexity_api.call_perplexity_api_tier_b(
+                                    formatted_prompt, 
+                                    test_perplexity_key,
+                                    test_model
+                                )
+                                
+                                # If this is a reasoning model response, try to extract structured data
+                                if response and "sonar-reasoning" in test_model:
+                                    structured_data = call_perplexity_api.extract_structured_data_with_sonar(
+                                        response, 
+                                        test_perplexity_key
+                                    )
+                                    if structured_data:
+                                        response = structured_data
+                        
+                        if response:
+                            st.success("✅ Tier-B prompt test successful!")
+                            st.json(response)
+                        else:
+                            st.error("❌ API call succeeded but returned empty or invalid response.")
+                            if raw_response:
+                                st.expander("Raw API Response").code(raw_response, language="json")
+                    except Exception as e:
+                        st.error(f"❌ Error testing Tier-B prompt: {e}")
+
+        # Help section
+        st.markdown("---")
+        st.markdown("### Prompt Template Variables")
+        st.info("""
+        Your prompt templates can include these variables which will be replaced with actual values:
+        - `{{domain}}` - The domain for taxonomy generation
+        - `{{max_labels}}` - Maximum number of labels (Tier-A target)
+        - `{{min_labels}}` - Minimum number of labels (Tier-B target)
+        - `{{deny_list}}` - Comma-separated list of denied terms
+        - `{{candidates_json}}` - JSON array of candidate labels (for Tier-B only)
         """)
 
 
