@@ -139,21 +139,10 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
     if not api_key.startswith("pplx-"):
         st.warning("Perplexity API key doesn't have the expected format (should start with 'pplx-')")
     
-    # Handle online vs offline models
-    # Models that don't use web search
-    offline_models = ["r1-1776"]
+    # Note: Perplexity model names are used as-is without adding -online suffix
+    # The online search capability is built into models like sonar and sonar-pro
     
-    # Models that typically use web search (add -online suffix)
-    search_models = ["sonar", "sonar-pro"]
-    
-    # Use the model name directly from the Perplexity documentation
-    model_to_use = model_name
-    
-    # Add -online suffix only for search models that don't already have it
-    if model_name in search_models and not model_name.endswith("-online"):
-        model_to_use = f"{model_name}-online"
-    
-    st.info(f"🔹 Calling Tier-A (Perplexity) model ({model_to_use})...")
+    st.info(f"🔹 Calling Tier-A (Perplexity) model ({model_name})...")
     
     try:
         client = OpenAI(
@@ -173,9 +162,9 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
             }
         ]
         
-        # Make API call
+        # Make API call with exact parameter format matching Perplexity documentation
         response = client.chat.completions.create(
-            model=model_to_use,
+            model=model_name,
             messages=messages,
             temperature=0.0,
             max_tokens=2048,
@@ -225,21 +214,10 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
     if not api_key.startswith("pplx-"):
         st.warning("Perplexity API key doesn't have the expected format (should start with 'pplx-')")
     
-    # Handle online vs offline models
-    # Models that don't use web search
-    offline_models = ["r1-1776"]
+    # Note: Perplexity model names are used as-is without adding -online suffix
+    # The online search capability is built into models like sonar and sonar-pro
     
-    # Models that typically use web search (add -online suffix)
-    search_models = ["sonar", "sonar-pro"]
-    
-    # Use the model name directly from the Perplexity documentation
-    model_to_use = model_name
-    
-    # Add -online suffix only for search models that don't already have it
-    if model_name in search_models and not model_name.endswith("-online"):
-        model_to_use = f"{model_name}-online"
-    
-    st.info(f"🔹 Calling Tier-B (Perplexity) model ({model_to_use})...")
+    st.info(f"🔹 Calling Tier-B (Perplexity) model ({model_name})...")
     
     try:
         client = OpenAI(
@@ -259,9 +237,9 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
             }
         ]
         
-        # Make API call
+        # Make API call with exact parameter format matching Perplexity documentation
         response = client.chat.completions.create(
-            model=model_to_use,
+            model=model_name,
             messages=messages,
             temperature=0.0,
             max_tokens=2048,
