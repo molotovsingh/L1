@@ -664,13 +664,8 @@ def main():
                         else:
                             tier_b_model = tier_b_model_option
                     
-                    min_labels = st.number_input(
-                        "Min Labels", 
-                        min_value=3, 
-                        max_value=12, 
-                        value=DEFAULT_MIN_LABELS,
-                        help="Minimum number of labels in the final taxonomy"
-                    )
+                    # Hidden min_labels field - using max_labels for both min and max as requested
+                    min_labels = max_labels
                     
                     out_dir_str = st.text_input(
                         "Output Directory", 
@@ -705,7 +700,7 @@ def main():
                     tier_a_model=tier_a_model,
                     tier_b_model=tier_b_model,
                     max_labels=max_labels,
-                    min_labels=min_labels,
+                    min_labels=max_labels,  # Using max_labels for min_labels as requested
                     deny_list=deny_list,
                     out_dir=out_dir,
                     api_provider=form_api_provider,
