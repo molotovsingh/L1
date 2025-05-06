@@ -7,6 +7,7 @@ with reasoning capabilities.
 """
 
 import os
+import re
 import time
 import json
 import logging
@@ -467,6 +468,7 @@ def extract_structured_data_with_sonar(text: str, api_key: Optional[str]) -> Opt
     Returns:
         Dict or None: Structured data extracted from text
     """
+    import re
     if not api_key:
         st.error("PERPLEXITY_API_KEY required but not found in environment variables.")
         return None
@@ -516,13 +518,14 @@ Return only the JSON object.
             }
         ]
         
-        # Make API call to sonar model
+        # Make API call to sonar model with JSON response format
         response = client.chat.completions.create(
             model="sonar",  # Using sonar for structure extraction
             messages=messages,
             temperature=0.0,
             max_tokens=2048,
             top_p=1,
+            response_format={"type": "json_object"}  # Force JSON output
         )
         
         # Extract content
@@ -531,26 +534,44 @@ Return only the JSON object.
             if content:
                 # Try to parse the extracted JSON
                 try:
-                    # Look for JSON object pattern in the response {....}
-                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group(0)
-                        data = json.loads(json_str)
+                    # Since we're using response_format={"type": "json_object"}, 
+                    # we can directly parse the content
+                    data = json.loads(content)
+                    
+                    # Verify the extracted structure
+                    if (isinstance(data, dict) and 
+                        "approved" in data and isinstance(data["approved"], list) and
+                        "rejected" in data and isinstance(data["rejected"], list) and
+                        "reason_rejected" in data and isinstance(data["reason_rejected"], dict)):
                         
-                        # Verify the extracted structure
-                        if (isinstance(data, dict) and 
-                            "approved" in data and isinstance(data["approved"], list) and
-                            "rejected" in data and isinstance(data["rejected"], list) and
-                            "reason_rejected" in data and isinstance(data["reason_rejected"], dict)):
-                            
-                            st.success("✅ Successfully extracted structured data from reasoning model output")
-                            return data
-                        else:
-                            st.warning("Extracted JSON has an invalid structure")
+                        st.success("✅ Successfully extracted structured data from reasoning model output")
+                        return data
                     else:
-                        st.warning("Could not find JSON in sonar extraction response")
+                        st.warning("Extracted JSON has an invalid structure")
+                        st.expander("Invalid Structure").json(data)
                 except json.JSONDecodeError:
                     st.warning("Could not parse JSON from sonar extraction")
+                    
+                    # Fallback: Try to extract JSON pattern if direct parsing fails
+                    try:
+                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                        if json_match:
+                            json_str = json_match.group(0)
+                            data = json.loads(json_str)
+                            
+                            if (isinstance(data, dict) and 
+                                "approved" in data and isinstance(data["approved"], list) and
+                                "rejected" in data and isinstance(data["rejected"], list) and
+                                "reason_rejected" in data and isinstance(data["reason_rejected"], dict)):
+                                
+                                st.success("✅ Successfully extracted JSON object from response")
+                                return data
+                            else:
+                                st.warning("Extracted JSON object has an invalid structure")
+                        else:
+                            st.warning("Could not find JSON object in sonar extraction response")
+                    except Exception:
+                        st.error("Failed to extract valid JSON from response")
         
         st.error("Sonar extraction failed to produce valid structured data")
         return None
