@@ -10,6 +10,7 @@ import os
 import time
 import json
 import logging
+import traceback
 from typing import Optional, Dict, Any, List
 
 import streamlit as st
@@ -18,6 +19,48 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OpenAI = None
+    
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def log_api_error(error: Exception, model_name: str, api_key: Optional[str], is_tier_a: bool = True):
+    """
+    Enhanced error logging for Perplexity API calls
+    
+    Args:
+        error: The exception that was raised
+        model_name: The model used in the API call
+        api_key: The API key used (to check format)
+        is_tier_a: Whether this was a Tier-A or Tier-B call
+    """
+    tier = "Tier-A" if is_tier_a else "Tier-B"
+    error_str = str(error)
+    
+    # Log to console for debugging
+    logger.error(f"Perplexity API Error ({tier}): {error_str}")
+    
+    # Display UI error messages
+    if "400" in error_str:
+        st.warning(f"Bad Request Error in {tier}: The API request format may be incorrect.")
+        st.info(f"""
+### Debug Info for {tier}:
+- **Model:** {model_name}
+- **API Base URL:** https://api.perplexity.ai
+- **API Key Format:** {'Valid' if api_key and api_key.startswith('pplx-') else 'Invalid or Missing'} 
+- **Error Details:** {error_str}
+
+Check that you're using a valid Perplexity model name. Common models include:
+- sonar
+- sonar-pro
+- sonar-reasoning
+- sonar-reasoning-pro
+- sonar-deep-research
+- r1-1776
+        """)
+        
+        # Print the traceback for more details
+        st.expander("View Error Traceback", expanded=False).code(traceback.format_exc())
     OPENAI_AVAILABLE = False
 
 # Configure logging
