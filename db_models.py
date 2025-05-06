@@ -102,6 +102,33 @@ class RejectedLabel(Base):
     taxonomy = relationship("Taxonomy", back_populates="rejected_labels")
 
 
+class CustomPrompt(Base):
+    """Represents a custom prompt version."""
+    __tablename__ = "custom_prompts"
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)
+    tier = Column(String(10), nullable=False)  # 'A' or 'B'
+    api_provider = Column(String(50), nullable=False)  # 'OpenAI' or 'Perplexity'
+    content = Column(Text, nullable=False)
+    description = Column(Text)
+    is_system = Column(Integer, default=0)  # 0=False, 1=True for default/system prompts
+    timestamp = Column(DateTime, default=datetime.now)
+    
+    def to_dict(self):
+        """Convert custom prompt to dictionary representation."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "tier": self.tier,
+            "api_provider": self.api_provider,
+            "content": self.content,
+            "description": self.description,
+            "is_system": bool(self.is_system),  # Convert int to bool (0=False, 1=True)
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None
+        }
+
+
 # Create tables
 Base.metadata.create_all(engine)
 
@@ -303,6 +330,173 @@ def delete_taxonomy(taxonomy_id):
         else:
             print(f"Database error during delete: {e}")
         
+        return False
+    finally:
+        session.close()
+
+
+def create_custom_prompt(name, tier, api_provider, content, description=None, is_system=False):
+    """
+    Create a new custom prompt in the database.
+    
+    Args:
+        name (str): Name of the prompt version
+        tier (str): 'A' or 'B' (which generation tier this prompt is for)
+        api_provider (str): 'OpenAI' or 'Perplexity'
+        content (str): The prompt text content
+        description (str, optional): Description of what this prompt version does
+        is_system (bool, optional): Whether this is a system/default prompt
+        
+    Returns:
+        int: ID of the created prompt or None if there was an error
+    """
+    session = SessionLocal()
+    try:
+        prompt = CustomPrompt(
+            name=name,
+            tier=tier,
+            api_provider=api_provider,
+            content=content,
+            description=description,
+            is_system=1 if is_system else 0  # Convert bool to int (0=False, 1=True)
+        )
+        session.add(prompt)
+        session.commit()
+        print(f"Custom prompt '{name}' created with ID: {prompt.id}")
+        return prompt.id
+    except Exception as e:
+        session.rollback()
+        print(f"Error creating custom prompt: {e}")
+        return None
+    finally:
+        session.close()
+
+
+def get_custom_prompts(tier=None, api_provider=None):
+    """
+    Get custom prompts with optional filtering.
+    
+    Args:
+        tier (str, optional): Filter by 'A' or 'B' tier
+        api_provider (str, optional): Filter by 'OpenAI' or 'Perplexity'
+        
+    Returns:
+        list: List of prompt dictionaries
+    """
+    session = SessionLocal()
+    try:
+        query = session.query(CustomPrompt)
+        
+        if tier:
+            query = query.filter(CustomPrompt.tier == tier)
+        
+        if api_provider:
+            query = query.filter(CustomPrompt.api_provider == api_provider)
+            
+        prompts = query.all()
+        return [prompt.to_dict() for prompt in prompts]
+    except Exception as e:
+        print(f"Error retrieving custom prompts: {e}")
+        return []
+    finally:
+        session.close()
+
+
+def get_custom_prompt(prompt_id):
+    """
+    Get a specific custom prompt by ID.
+    
+    Args:
+        prompt_id (int): ID of the prompt to retrieve
+        
+    Returns:
+        dict: Custom prompt as a dictionary or None if not found
+    """
+    session = SessionLocal()
+    try:
+        prompt = session.query(CustomPrompt).filter(CustomPrompt.id == prompt_id).first()
+        if prompt:
+            return prompt.to_dict()
+        return None
+    except Exception as e:
+        print(f"Error retrieving custom prompt: {e}")
+        return None
+    finally:
+        session.close()
+
+
+def update_custom_prompt(prompt_id, name=None, content=None, description=None):
+    """
+    Update an existing custom prompt.
+    
+    Args:
+        prompt_id (int): ID of the prompt to update
+        name (str, optional): New name for the prompt
+        content (str, optional): New content for the prompt
+        description (str, optional): New description for the prompt
+        
+    Returns:
+        bool: True if update was successful, False otherwise
+    """
+    session = SessionLocal()
+    try:
+        prompt = session.query(CustomPrompt).filter(CustomPrompt.id == prompt_id).first()
+        if not prompt:
+            print(f"Custom prompt with ID {prompt_id} not found")
+            return False
+            
+        # Do not allow updating system prompts (only their copies)
+        if prompt.is_system:
+            print(f"Cannot update system prompt with ID {prompt_id}")
+            return False
+            
+        if name:
+            prompt.name = name
+        if content:
+            prompt.content = content
+        if description is not None:  # Allow setting to empty string
+            prompt.description = description
+            
+        session.commit()
+        print(f"Custom prompt with ID {prompt_id} updated successfully")
+        return True
+    except Exception as e:
+        session.rollback()
+        print(f"Error updating custom prompt: {e}")
+        return False
+    finally:
+        session.close()
+
+
+def delete_custom_prompt(prompt_id):
+    """
+    Delete a custom prompt by ID.
+    
+    Args:
+        prompt_id (int): ID of the prompt to delete
+        
+    Returns:
+        bool: True if deletion was successful, False otherwise
+    """
+    session = SessionLocal()
+    try:
+        prompt = session.query(CustomPrompt).filter(CustomPrompt.id == prompt_id).first()
+        if not prompt:
+            print(f"Custom prompt with ID {prompt_id} not found")
+            return False
+            
+        # Do not allow deleting system prompts
+        if prompt.is_system:
+            print(f"Cannot delete system prompt with ID {prompt_id}")
+            return False
+            
+        session.delete(prompt)
+        session.commit()
+        print(f"Custom prompt with ID {prompt_id} deleted successfully")
+        return True
+    except Exception as e:
+        session.rollback()
+        print(f"Error deleting custom prompt: {e}")
         return False
     finally:
         session.close()
