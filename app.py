@@ -86,7 +86,7 @@ DEFAULT_PERPLEXITY_TIER_B_OPTIONS: List[str] = [
 # Default to OpenAI options for backward compatibility
 DEFAULT_TIER_A_OPTIONS = DEFAULT_OPENAI_TIER_A_OPTIONS
 DEFAULT_TIER_B_OPTIONS = DEFAULT_OPENAI_TIER_B_OPTIONS
-DEFAULT_MAX_LABELS: int = 9
+DEFAULT_MAX_LABELS: int = 15
 DEFAULT_MIN_LABELS: int = 8
 DEFAULT_DENY_LIST: str = "Funding\nHiring\nPartnership"
 DEFAULT_OUT_DIR: str = "taxonomies"
@@ -180,7 +180,7 @@ You are a domain taxonomy generator specializing in discrete events.
 Domain: {domain}
 
 TASK:
-Generate a list of 12–15 distinct, top-level (L1) categories representing *specific types of events* or *discrete occurrences* within the '{domain}' domain. Think incidents, launches, breakthroughs, failures, breaches, discoveries, major releases, regulatory actions, etc.
+Generate a list of {min_labels}–{max_labels} distinct, top-level (L1) categories representing *specific types of events* or *discrete occurrences* within the '{domain}' domain. Think incidents, launches, breakthroughs, failures, breaches, discoveries, major releases, regulatory actions, etc.
 
 Rules for Labels:
 1. Format: TitleCase, 1–4 words. May include one internal hyphen (e.g., Model-Launch, Data-Breach, Regulatory-Approval). Start with a capital letter. NO hash symbols (#).
