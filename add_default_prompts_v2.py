@@ -202,7 +202,14 @@ def add_default_prompts_v2() -> None:
         }
         
         try:
-            prompt_id = db_models.add_custom_prompt(prompt_data)
+            prompt_id = db_models.create_custom_prompt(
+                name=prompt["name"],
+                tier=prompt["tier"],
+                api_provider=prompt["api_provider"],
+                content=prompt["content"],
+                description=prompt["description"],
+                is_system=prompt["is_system"]
+            )
             logging.info(f"Added prompt '{prompt['name']}' with ID: {prompt_id}")
         except Exception as e:
             logging.error(f"Failed to add prompt '{prompt['name']}': {e}")
