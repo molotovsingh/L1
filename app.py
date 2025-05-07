@@ -212,55 +212,79 @@ Generate the JSON array now.
     if resp_A:
         # Display raw response in expander
         with st.expander("Raw Tier-A Response"):
-            st.code(resp_A, language="json")
+            st.code(str(resp_A), language="json")  # Convert to string for display
 
-        # Attempt to extract JSON - LLMs sometimes add preamble/postamble text
         import re  # Import re here to ensure it's available in this scope
         
-        # Check if resp_A is already a list (could happen with some API implementations)
+        # HANDLE DIFFERENT RESPONSE TYPES
+        # Case 1: List object response
         if isinstance(resp_A, list):
-            candidates_raw = resp_A
-            candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if isinstance(c, str) and str(c).strip()]
-            st.success(f"✅ Tier-A proposed {len(candidates)} labels (API returned list)")
-        else:
-            # Only search in string responses
-            json_match = re.search(r'\[.*?\]', str(resp_A), re.DOTALL | re.IGNORECASE)  # Find bracketed list more robustly
+            try:
+                candidates_raw = resp_A
+                candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if c is not None]
+                st.success(f"✅ Tier-A proposed {len(candidates)} labels (API returned list)")
+            except Exception as e:
+                st.error(f"Error processing list response: {e}")
+                return None, None, None
+                
+        # Case 2: String response with JSON array
+        elif isinstance(resp_A, str):
+            # Try to find JSON array in string
+            json_match = re.search(r'\[.*?\]', resp_A, re.DOTALL | re.IGNORECASE)
+            
             if json_match:
-                json_str = json_match.group(0)
+                # Found JSON-like pattern
                 try:
+                    json_str = json_match.group(0)
                     candidates_raw = json.loads(json_str)
-                    # Clean candidates robustly
-                    candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if isinstance(c, str) and str(c).strip()]
+                    candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if c is not None]
                     st.success(f"✅ Tier-A proposed {len(candidates)} labels (extracted JSON)")
-                except json.JSONDecodeError:
-                    st.warning(f"Tier-A JSON structure invalid in extracted part. Trying full response.")
-                    # Fallback to parsing the whole response carefully
-                    try:
-                        # A final attempt - maybe it's just the array without brackets in text
-                        if str(resp_A).strip().startswith('"') and str(resp_A).strip().endswith('"'):
-                            resp_A_maybe_list = f"[{resp_A}]"  # Wrap in brackets if it looks like comma-sep strings
-                        else:
-                            resp_A_maybe_list = resp_A  # Try as is
-                        candidates_raw = json.loads(resp_A_maybe_list)
-                        candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if isinstance(c, str) and str(c).strip()]
-                        st.success(f"✅ Tier-A proposed {len(candidates)} labels (full response parse)")
-                    except json.JSONDecodeError:
-                        st.error(f"Tier‑A returned unparsable JSON even on fallback.")
-                        return None, None, None
-            else:
-                # Maybe the LLM ignored the JSON request and just gave a list
-                try:
-                    lines = [line.strip().lstrip('- ').lstrip('* ').lstrip('# ') for line in str(resp_A).split('\n') if line.strip()]
-                    # Basic check if lines look like labels
-                    if lines and len(lines) > 3 and all(1 <= len(line.split()) <= 5 for line in lines):
-                        candidates = lines
-                        st.warning(f"Tier-A did not return JSON, but parsed {len(candidates)} lines as potential labels")
-                    else:
-                        st.error(f"Tier-A did not return a recognizable JSON array or list.")
-                        return None, None, None
                 except Exception as e:
-                    st.error(f"Failed to process Tier-A response: {e}")
+                    # Try to parse the whole response as JSON
+                    try:
+                        candidates_raw = json.loads(resp_A)
+                        if isinstance(candidates_raw, list):
+                            candidates = [str(c).strip().lstrip('# ') for c in candidates_raw if c is not None]
+                            st.success(f"✅ Tier-A proposed {len(candidates)} labels (full JSON parse)")
+                        else:
+                            # Maybe the JSON has a nested array
+                            for key, value in candidates_raw.items():
+                                if isinstance(value, list) and len(value) > 0:
+                                    candidates = [str(c).strip().lstrip('# ') for c in value if c is not None]
+                                    st.success(f"✅ Tier-A proposed {len(candidates)} labels (from JSON key '{key}')")
+                                    break
+                            else:
+                                st.error(f"Tier-A returned JSON without a labels array")
+                                return None, None, None
+                    except json.JSONDecodeError:
+                        # Last resort: Line-by-line parsing
+                        lines = [line.strip().lstrip('- ').lstrip('* ').lstrip('# ') 
+                                for line in resp_A.split('\n') 
+                                if line.strip() and not line.strip().startswith('```')]
+                        
+                        if lines and len(lines) > 3 and all(1 <= len(line.split()) <= 10 for line in lines):
+                            candidates = lines
+                            st.warning(f"Tier-A did not return valid JSON, using {len(candidates)} lines as labels")
+                        else:
+                            st.error(f"Tier-A response could not be parsed as labels")
+                            return None, None, None
+            else:
+                # No JSON structure found, try line-by-line parsing
+                lines = [line.strip().lstrip('- ').lstrip('* ').lstrip('# ') 
+                        for line in resp_A.split('\n') 
+                        if line.strip() and not line.strip().startswith('```')]
+                
+                if lines and len(lines) > 3 and all(1 <= len(line.split()) <= 10 for line in lines):
+                    candidates = lines
+                    st.warning(f"Tier-A did not return JSON, but parsed {len(candidates)} lines as potential labels")
+                else:
+                    st.error(f"Tier-A did not return a recognizable array or list")
                     return None, None, None
+        
+        # Case 3: Unknown type
+        else:
+            st.error(f"Tier-A returned an unsupported response type: {type(resp_A)}")
+            return None, None, None
     else:
         st.error("Tier-A generation failed (API call error or empty response).")
         return None, None, None  # Stop processing
