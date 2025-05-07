@@ -771,7 +771,7 @@ def main():
                     max_labels = st.number_input(
                         "Tier-A Target Labels", 
                         min_value=5, 
-                        max_value=15, 
+                        max_value=20, 
                         value=DEFAULT_MAX_LABELS,
                         help="Target number of labels for candidate generation (Tier-A)"
                     )
