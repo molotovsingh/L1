@@ -134,7 +134,7 @@ def create_taxonomy_audit_prompt(
     is_reasoning_model = "reasoning" in model_name.lower() if model_name else False
     
     if is_reasoning_model:
-        # For reasoning models, use a more natural language output format
+        # For reasoning models, use a more natural language output format with explicit thinking tags
         prompt = f"""
 You are a meticulous taxonomy auditor enforcing specific principles.
 
@@ -145,34 +145,29 @@ Your Task:
 Review the candidate labels based on the following principles and return a refined list.
 
 Principles to Enforce:
-1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states (e.g., "Machine Learning", "Cloud Infrastructure").
-2. Formatting: Ensure labels are 1–4 words, TitleCase. Hyphens are allowed ONLY between words (e.g., "Data-Breach" is okay, "AI-Powered" as an event type might be questionable unless it refers to a specific *launch* event). No leading symbols like '#'.
-3. Deny List: Reject any label containing the exact terms: {denied_terms}.
-4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {max_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
+1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states.
+2. Formatting: Labels must be 1–4 words, TitleCase, with hyphens between words (e.g., "Data-Breach").
+3. Deny List: Reject any label containing the terms: {denied_terms}.
+4. Consolidation & Target Count: Merge synonyms or similar event types. Aim for exactly {min_labels} labels (±1). This means between {min_labels-1} and {min_labels+1} labels.
 
-Output Format:
-1. First, list your APPROVED LABELS with the heading "APPROVED LABELS:" (one per line)
-2. Then, list your REJECTED LABELS with the heading "REJECTED LABELS:" (one per line)
-3. Finally, for each rejected label, explain why it was rejected under the heading "REJECTION REASONS:"
+5. Output Format: Use this EXACT format:
+<thinking>
+Your detailed analysis process here...
+</thinking>
 
-Example:
 APPROVED LABELS:
-Model-Launch
-System-Outage
-Regulatory-Action
+[List each approved label, one per line]
 
 REJECTED LABELS:
-AI Research
-Funding Round
-ProductUpdate
+[List each rejected label, one per line]
 
 REJECTION REASONS:
-AI Research: Not event-driven, describes a theme.
-Funding Round: Contains denied term 'Funding'.
-ProductUpdate: Merged into Major-Release.
+[For each rejected label: "Label: Reason for rejection"]
+
+The <thinking> tags help me understand your reasoning process, but I'll extract only the final lists after those tags.
 """
     else:
-        # For non-reasoning models, use the original JSON output format
+        # For non-reasoning models, use the JSON output format
         prompt = f"""
 You are a meticulous taxonomy auditor enforcing specific principles.
 
@@ -183,14 +178,14 @@ Your Task:
 Review the candidate labels based on the following principles and return a refined list.
 
 Principles to Enforce:
-1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states (e.g., "Machine Learning", "Cloud Infrastructure").
-2. Formatting: Ensure labels are 1–4 words, TitleCase. Hyphens are allowed ONLY between words (e.g., "Data-Breach" is okay, "AI-Powered" as an event type might be questionable unless it refers to a specific *launch* event). No leading symbols like '#'.
-3. Deny List: Reject any label containing the exact terms: {denied_terms}.
-4. Consolidation & Target Count: Merge clear synonyms or overly similar event types. Aim for a final list of {max_labels} (±1) distinct, high-value event categories. Prioritize the most significant and common event types for the domain.
+1. Event-Driven Focus: Each label MUST represent a discrete event, incident, change, or occurrence. Reject labels describing general themes, capabilities, technologies, or ongoing states.
+2. Formatting: Labels must be 1–4 words, TitleCase, with hyphens between words (e.g., "Data-Breach").
+3. Deny List: Reject any label containing the terms: {denied_terms}.
+4. Consolidation & Target Count: Merge synonyms or similar event types. Aim for exactly {min_labels} labels (±1). This means between {min_labels-1} and {min_labels+1} labels.
 5. Output Structure: Return ONLY a JSON object with the following keys:
-   - "approved": A JSON array of strings containing the final, approved labels.
-   - "rejected": A JSON array of strings containing the labels that were rejected or merged away.
-   - "reason_rejected": A JSON object mapping each rejected label (from the "rejected" list) to a brief reason for rejection (e.g., "Not event-driven", "Synonym of X", "Contains denied term", "Too broad").
+   - "approved": Array of approved labels (aim for {min_labels} ±1 labels)
+   - "rejected": Array of rejected labels
+   - "reason_rejected": Object mapping each rejected label to a reason
 
 Example Output Format:
 {{
