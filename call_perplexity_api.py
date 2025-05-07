@@ -12,7 +12,7 @@ import time
 import json
 import logging
 import traceback
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Union
 from datetime import datetime
 
 import streamlit as st
@@ -208,7 +208,7 @@ Return only the JSON object now.
     return prompt
 
 
-def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: str = "sonar") -> Tuple[Optional[str], Optional[str], Optional[datetime]]:
+def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: str = "sonar") -> Tuple[Union[List[str], str, None], Optional[str], Optional[datetime]]:
     """
     Call Perplexity API for Tier-A candidate generation.
     
@@ -276,9 +276,21 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         if hasattr(response, 'choices') and len(response.choices) > 0:
             content = response.choices[0].message.content
             if content:
-                # Store both the processed content and raw response
+                # Store the raw response for debugging/analysis
+                raw_content = content
+                
+                # Use the flexible parser for Tier-A to handle various response formats
+                # This allows more flexible prompts that might return JSON, lists, or other structures
+                labels = flexible_response_parser(content)
+                
+                if labels:
+                    # If we successfully extracted labels, return them
+                    logger.info(f"Successfully extracted {len(labels)} labels using flexible parser")
+                    return labels, raw_content, api_timestamp
+                
+                # If flexible parser didn't find any labels, fall back to returning the raw content
+                # This maintains backward compatibility with the existing processing logic
                 processed_content = content.strip()
-                raw_content = content  # Store the raw response for debugging/analysis
                 return processed_content, raw_content, api_timestamp
         
         st.error(f"Perplexity API returned an empty or invalid response for Tier-A.")
@@ -456,6 +468,12 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
         if hasattr(response, 'choices') and len(response.choices) > 0:
             content = response.choices[0].message.content
             if content:
+                # For Tier-B, we primarily want the reasoning output for later extraction
+                # But we can still try the flexible parser for diagnostic purposes
+                labels = flexible_response_parser(content)
+                if labels:
+                    logger.info(f"Flexible parser found {len(labels)} potential labels in Tier-B response")
+                
                 # Store both the processed content and raw response
                 processed_content = content.strip()
                 raw_content = content  # Store the raw response for debugging/analysis
