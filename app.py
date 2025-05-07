@@ -20,7 +20,7 @@ import db_models
 
 # Custom utilities
 import model_mapper
-import call_apis_new as call_apis  # Using the updated API implementation
+import call_apis_enhanced as call_apis  # Using the enhanced API implementation with flexible parsing
 import call_perplexity_api
 
 # API clients
