@@ -1151,7 +1151,7 @@ Rules for Labels:
 Generate the JSON array now.
 """
         else:  # Perplexity
-            import call_perplexity_api
+            # Use the globally imported call_perplexity_api module
             tier_a_prompt = call_perplexity_api.create_taxonomy_prompt(debug_domain, debug_max_labels, debug_min_labels, debug_deny_set)
         
         st.code(tier_a_prompt, language="text")
@@ -1206,7 +1206,7 @@ Example Output Format:
 Return only the JSON object now.
 """
         else:  # Perplexity
-            import call_perplexity_api
+            # Use the globally imported call_perplexity_api module
             tier_b_prompt = call_perplexity_api.create_taxonomy_audit_prompt(
                 debug_domain, sample_candidates, debug_max_labels, debug_min_labels, debug_deny_set, 
                 model_name="sonar-reasoning"  # Default reasoning model for example
@@ -1607,8 +1607,10 @@ Return only the JSON object now.
                                     test_model
                                 )
                         else:  # Perplexity
+                            # Import at the global level to avoid local variable issues
+                            import call_perplexity_api as cp_api
                             with st.spinner(f"Calling Perplexity API with model {test_model}..."):
-                                response, raw_response, timestamp = call_perplexity_api.call_perplexity_api_tier_a(
+                                response, raw_response, timestamp = cp_api.call_perplexity_api_tier_a(
                                     formatted_prompt, 
                                     test_perplexity_key,
                                     test_model
@@ -1656,8 +1658,10 @@ Return only the JSON object now.
                                     test_model
                                 )
                         else:  # Perplexity
+                            # Import at the global level to avoid local variable issues
+                            import call_perplexity_api as cp_api
                             with st.spinner(f"Calling Perplexity API with model {test_model}..."):
-                                response, raw_response, timestamp = call_perplexity_api.call_perplexity_api_tier_b(
+                                response, raw_response, timestamp = cp_api.call_perplexity_api_tier_b(
                                     formatted_prompt, 
                                     test_perplexity_key,
                                     test_model
@@ -1665,7 +1669,7 @@ Return only the JSON object now.
                                 
                                 # If this is a reasoning model response, try to extract structured data
                                 if response and "sonar-reasoning" in test_model:
-                                    structured_data = call_perplexity_api.extract_structured_data_with_sonar(
+                                    structured_data = cp_api.extract_structured_data_with_sonar(
                                         response, 
                                         test_perplexity_key
                                     )
