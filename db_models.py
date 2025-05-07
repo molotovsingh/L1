@@ -385,13 +385,15 @@ def create_custom_prompt(name, tier, api_provider, content, description=None, is
         session.close()
 
 
-def get_custom_prompts(tier=None, api_provider=None):
+def get_custom_prompts(tier=None, api_provider=None, include_system=False):
     """
     Get custom prompts with optional filtering.
     
     Args:
         tier (str, optional): Filter by 'A' or 'B' tier
         api_provider (str, optional): Filter by 'OpenAI' or 'Perplexity'
+        include_system (bool, optional): Whether to include system prompts 
+                                         (default False - only user prompts)
         
     Returns:
         list: List of prompt dictionaries
@@ -406,10 +408,44 @@ def get_custom_prompts(tier=None, api_provider=None):
         if api_provider:
             query = query.filter(CustomPrompt.api_provider == api_provider)
             
+        # By default, exclude system prompts (is_system = 0)
+        if not include_system:
+            query = query.filter(CustomPrompt.is_system == 0)
+            
         prompts = query.all()
         return [prompt.to_dict() for prompt in prompts]
     except Exception as e:
         print(f"Error retrieving custom prompts: {e}")
+        return []
+    finally:
+        session.close()
+
+
+def get_system_prompts(tier=None, api_provider=None):
+    """
+    Get system/default prompts with optional filtering.
+    
+    Args:
+        tier (str, optional): Filter by 'A' or 'B' tier
+        api_provider (str, optional): Filter by 'OpenAI' or 'Perplexity'
+        
+    Returns:
+        list: List of system prompt dictionaries
+    """
+    session = SessionLocal()
+    try:
+        query = session.query(CustomPrompt).filter(CustomPrompt.is_system == 1)
+        
+        if tier:
+            query = query.filter(CustomPrompt.tier == tier)
+        
+        if api_provider:
+            query = query.filter(CustomPrompt.api_provider == api_provider)
+            
+        prompts = query.all()
+        return [prompt.to_dict() for prompt in prompts]
+    except Exception as e:
+        print(f"Error retrieving system prompts: {e}")
         return []
     finally:
         session.close()

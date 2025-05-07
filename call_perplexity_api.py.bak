@@ -413,7 +413,7 @@ Make sure the approved and rejected lists are complete and accurate based on the
             model="sonar",  # Use regular sonar, not reasoning models
             messages=messages,
             temperature=0.0,
-            max_tokens=4096,  # Increased from 2048 to handle larger data extraction
+            max_tokens=2048,
             top_p=1,
             response_format={"type": "json_object"}  # Request JSON format
         )
@@ -495,7 +495,7 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
             model=model_name,
             messages=messages,
             temperature=0.0,
-            max_tokens=4096,  # Increased from 2048 to handle larger reasoning responses
+            max_tokens=2048,
             top_p=1,
         )
         
@@ -658,7 +658,7 @@ Extract and format the structure precisely. Return ONLY the JSON object with no 
             model="sonar",  # Using sonar for structure extraction
             messages=messages,
             temperature=0.0,
-            max_tokens=4096,  # Increased from 2048 to handle larger data extraction
+            max_tokens=2048,
             top_p=1
             # Perplexity API doesn't support the response_format parameter like OpenAI
         )

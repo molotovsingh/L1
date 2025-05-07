@@ -700,13 +700,49 @@ def main():
                 except Exception as e:
                     st.warning(f"Could not check for custom prompts: {e}")
                 
-                # Option to use custom prompts
-                use_custom_prompts = st.checkbox(
-                    "Use Custom Prompts", 
-                    value=False,
-                    help="Use custom prompts from the Prompt Editor instead of the default prompts",
-                    disabled=not has_custom_prompts
+                # Prompt selection options
+                prompt_selection = st.radio(
+                    "Select Prompt Type", 
+                    ["Default Prompt (Standard)", "Default Prompt 2 (Improved)", "Custom Prompt"],
+                    help="Choose between different prompt versions",
+                    horizontal=True,
+                    index=0,
+                    disabled=not has_custom_prompts and "Custom Prompt"
                 )
+                
+                # Set the use_custom_prompts flag based on the selection
+                use_custom_prompts = (prompt_selection == "Custom Prompt")
+                
+                # Track which default prompt version to use (1 or 2)
+                use_default_prompt_v2 = (prompt_selection == "Default Prompt 2 (Improved)")
+                
+                # Get system prompts for the selected version
+                system_tier_a_prompt_id = None  
+                system_tier_b_prompt_id = None
+                
+                if not use_custom_prompts:
+                    try:
+                        # Get system prompts for the selected provider
+                        system_prompts = db_models.get_system_prompts(api_provider=api_provider)
+                        
+                        # Find matching system prompts for the selected version
+                        for prompt in system_prompts:
+                            is_v2 = "v2" in prompt.get("name", "").lower() or "improved" in prompt.get("name", "").lower()
+                            
+                            # Filter by version and tier
+                            if prompt["tier"] == "A" and (is_v2 == use_default_prompt_v2):
+                                system_tier_a_prompt_id = prompt["id"]
+                            elif prompt["tier"] == "B" and (is_v2 == use_default_prompt_v2):
+                                system_tier_b_prompt_id = prompt["id"]
+                        
+                        # Show which default prompt version we're using
+                        if use_default_prompt_v2:
+                            st.info("Using Default Prompt 2 (Improved version with enhanced token optimization)")
+                        else:
+                            st.info("Using Standard Default Prompt")
+                        
+                    except Exception as e:
+                        st.warning(f"Could not load system prompts: {e}")
                 
                 if use_custom_prompts:
                     if not has_custom_prompts:
@@ -744,16 +780,18 @@ def main():
                                 help="Select which Tier-B prompt version to use"
                             )
                 
-                # Hidden fields to store custom prompt IDs
+                # Hidden fields to store prompt IDs and settings
                 st.text_input(
                     "Tier-A Prompt ID", 
-                    value=selected_tier_a_id if use_custom_prompts and 'selected_tier_a_id' in locals() else "", 
+                    value=(selected_tier_a_id if use_custom_prompts and 'selected_tier_a_id' in locals() else 
+                           system_tier_a_prompt_id if not use_custom_prompts and system_tier_a_prompt_id else ""), 
                     key="tier_a_prompt_id_hidden", 
                     label_visibility="collapsed"
                 )
                 st.text_input(
                     "Tier-B Prompt ID", 
-                    value=selected_tier_b_id if use_custom_prompts and 'selected_tier_b_id' in locals() else "", 
+                    value=(selected_tier_b_id if use_custom_prompts and 'selected_tier_b_id' in locals() else 
+                           system_tier_b_prompt_id if not use_custom_prompts and system_tier_b_prompt_id else ""), 
                     key="tier_b_prompt_id_hidden", 
                     label_visibility="collapsed"
                 )
@@ -761,6 +799,12 @@ def main():
                     "Use Custom Prompts", 
                     value=str(use_custom_prompts), 
                     key="use_custom_prompts_hidden", 
+                    label_visibility="collapsed"
+                )
+                st.text_input(
+                    "Use Default Prompt V2", 
+                    value=str(use_default_prompt_v2), 
+                    key="use_default_prompt_v2_hidden", 
                     label_visibility="collapsed"
                 )
                 
