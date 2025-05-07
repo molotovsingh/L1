@@ -279,19 +279,41 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
                 # Store the raw response for debugging/analysis
                 raw_content = content
                 
-                # Use the flexible parser for Tier-A to handle various response formats
-                # This allows more flexible prompts that might return JSON, lists, or other structures
-                labels = flexible_response_parser(content)
-                
-                if labels:
-                    # If we successfully extracted labels, return them
-                    logger.info(f"Successfully extracted {len(labels)} labels using flexible parser")
-                    return labels, raw_content, api_timestamp
-                
-                # If flexible parser didn't find any labels, fall back to returning the raw content
-                # This maintains backward compatibility with the existing processing logic
-                processed_content = content.strip()
-                return processed_content, raw_content, api_timestamp
+                # Try to process the content with our robust parser
+                try:
+                    # Use the flexible parser for Tier-A to handle various response formats
+                    # This allows more flexible prompts that might return JSON, lists, or other structures
+                    labels = flexible_response_parser(content)
+                    
+                    if labels and isinstance(labels, list) and len(labels) > 0:
+                        # If we successfully extracted labels, return them
+                        logger.info(f"Successfully extracted {len(labels)} labels using flexible parser")
+                        return labels, raw_content, api_timestamp
+                    
+                    # If we couldn't extract labels but have content, return the content
+                    if isinstance(content, str):
+                        # This maintains backward compatibility with the existing processing logic
+                        processed_content = content.strip()
+                        return processed_content, raw_content, api_timestamp
+                    elif isinstance(content, list):
+                        # If it's already a list, return it directly
+                        return content, json.dumps(content), api_timestamp
+                    else:
+                        # Convert to string as a last resort
+                        return str(content), str(content), api_timestamp
+                        
+                except Exception as parse_error:
+                    # Log the parsing error but continue with raw content
+                    logger.error(f"Error in flexible parsing: {parse_error}")
+                    logger.error(traceback.format_exc())
+                    
+                    # Return the raw content as a fallback
+                    if isinstance(content, str):
+                        return content, content, api_timestamp
+                    elif isinstance(content, list):
+                        return content, json.dumps(content), api_timestamp
+                    else:
+                        return str(content), str(content), api_timestamp
         
         st.error(f"Perplexity API returned an empty or invalid response for Tier-A.")
         return None, None, api_timestamp
@@ -314,7 +336,7 @@ def call_perplexity_api_tier_a(prompt: str, api_key: Optional[str], model_name: 
         return None, None, api_timestamp
 
 
-def extract_structured_data_from_text(text: str, api_key: Optional[str]) -> Optional[Dict]:
+def extract_structured_data_from_text(text: Union[str, List, Any], api_key: Optional[str]) -> Optional[Dict]:
     """
     Use the sonar model to extract structured data from natural language output.
     
@@ -331,11 +353,32 @@ def extract_structured_data_from_text(text: str, api_key: Optional[str]) -> Opti
     
     st.info("🔍 Using sonar model to extract structured data from natural language output...")
     
+    # Handle different input types for text
+    text_to_process = text
+    
+    # Convert any non-string input to a string representation
+    if not isinstance(text, str):
+        logger.warning(f"extract_structured_data_from_text received non-string input: {type(text)}")
+        try:
+            if isinstance(text, list):
+                text_to_process = "\n".join([str(item) for item in text])
+                logger.info("Converted list to string for sonar extraction")
+            elif isinstance(text, dict):
+                text_to_process = json.dumps(text, indent=2)
+                logger.info("Converted dict to JSON string for sonar extraction")
+            else:
+                text_to_process = str(text)
+                logger.info(f"Converted {type(text)} to string for sonar extraction")
+        except Exception as e:
+            logger.error(f"Failed to convert input to string: {e}")
+            st.error(f"Failed to process input data for extraction: {e}")
+            return None
+    
     prompt = f"""
 Extract structured data from the following text, which contains a taxonomy review with approved labels, rejected labels, and rejection reasons:
 
 '''
-{text}
+{text_to_process}
 '''
 
 Return this information as a valid JSON object with the following structure:
@@ -468,16 +511,44 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
         if hasattr(response, 'choices') and len(response.choices) > 0:
             content = response.choices[0].message.content
             if content:
-                # For Tier-B, we primarily want the reasoning output for later extraction
-                # But we can still try the flexible parser for diagnostic purposes
-                labels = flexible_response_parser(content)
-                if labels:
-                    logger.info(f"Flexible parser found {len(labels)} potential labels in Tier-B response")
+                # Add robust error handling for Tier-B responses as well
+                try:
+                    # For Tier-B, we primarily want the reasoning output for later extraction
+                    # But we can still try the flexible parser for diagnostic purposes
+                    labels = flexible_response_parser(content)
+                    if labels and isinstance(labels, list):
+                        logger.info(f"Flexible parser found {len(labels)} potential labels in Tier-B response")
+                    
+                    # Determine return type based on content type
+                    if isinstance(content, str):
+                        # Store both the processed content and raw response
+                        processed_content = content.strip()
+                        raw_content = content  # Store the raw response for debugging/analysis
+                        return processed_content, raw_content, api_timestamp
+                    elif isinstance(content, list):
+                        # If content is a list, convert to JSON for the raw content
+                        processed_content = json.dumps(content)
+                        raw_content = json.dumps(content)
+                        return processed_content, raw_content, api_timestamp
+                    else:
+                        # For any other type, convert to string
+                        processed_content = str(content)
+                        raw_content = str(content)
+                        return processed_content, raw_content, api_timestamp
                 
-                # Store both the processed content and raw response
-                processed_content = content.strip()
-                raw_content = content  # Store the raw response for debugging/analysis
-                return processed_content, raw_content, api_timestamp
+                except Exception as parse_error:
+                    # Log the error but continue with simple string conversion
+                    logger.error(f"Error in Tier-B response processing: {parse_error}")
+                    logger.error(traceback.format_exc())
+                    
+                    # Fallback to simple string conversion
+                    try:
+                        processed_content = str(content)
+                        raw_content = str(content)
+                        return processed_content, raw_content, api_timestamp
+                    except:
+                        # Ultimate fallback
+                        return "Error processing response", "Error processing response", api_timestamp
         
         st.error(f"Perplexity API returned an empty or invalid response for Tier-B.")
         return None, None, api_timestamp
@@ -500,7 +571,7 @@ def call_perplexity_api_tier_b(prompt: str, api_key: Optional[str], model_name: 
         return None, None, api_timestamp
 
 
-def extract_structured_data_with_sonar(text: str, api_key: Optional[str]) -> Optional[Dict]:
+def extract_structured_data_with_sonar(text: Union[str, List, Any], api_key: Optional[str]) -> Optional[Dict]:
     """
     Use Perplexity's sonar model to extract structured data from natural language responses.
     
@@ -515,13 +586,34 @@ def extract_structured_data_with_sonar(text: str, api_key: Optional[str]) -> Opt
         st.error("PERPLEXITY_API_KEY required but not found in environment variables.")
         return None
     
-    # Create a prompt to extract the structured data
+    # Handle different input types for text before creating the prompt
+    text_to_process = text
+    
+    # Convert any non-string input to a string representation
+    if not isinstance(text, str):
+        logger.warning(f"extract_structured_data_with_sonar received non-string input: {type(text)}")
+        try:
+            if isinstance(text, list):
+                text_to_process = "\n".join([str(item) for item in text])
+                logger.info("Converted list to string for sonar processing")
+            elif isinstance(text, dict):
+                text_to_process = json.dumps(text, indent=2)
+                logger.info("Converted dict to JSON string for sonar processing")
+            else:
+                text_to_process = str(text)
+                logger.info(f"Converted {type(text)} to string for sonar processing")
+        except Exception as e:
+            logger.error(f"Failed to convert text to string for sonar: {e}")
+            st.error(f"Failed to process input data: {e}")
+            return None
+    
+    # Create a prompt to extract the structured data with the processed text
     prompt = f"""
 Extract structured data from the following taxonomy evaluation text. Output ONLY a valid JSON object following the exact structure specified:
 
 TEXT TO PROCESS:
 ```
-{text}
+{text_to_process}
 ```
 
 REQUIRED OUTPUT FORMAT:
