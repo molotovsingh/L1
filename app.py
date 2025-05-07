@@ -1249,7 +1249,8 @@ Return only the JSON object now.
                     st.info("Initializing default prompts... This will only happen once.")
                     # Use the initialize_default_prompts.py script
                     import initialize_default_prompts
-                    initialize_default_prompts.main()
+                    with st.spinner("Initializing default prompts (one-time setup)..."):
+                        initialize_default_prompts.main()
                     st.success("Default prompt templates have been loaded.")
                 
                 # Mark initialization as complete
