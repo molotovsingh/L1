@@ -1,0 +1,19 @@
+Generate Level 1 (L1) categories for the domain {{domain}}, following these rules:
+
+1. **Root-First**: Start by identifying the root technology domain(s) (e.g., "Edge-Computing", "Artificial-Intelligence").
+2. **Event-Driven**: Focus on observable events/patterns, not functional roles.
+3. **Minimal Overlap**: Ensure L1 categories are mutually exclusive.
+4. **Format**: Return ONLY a plain text list with one category per line.
+5. **Naming**: Use hyphenated format (e.g., "Edge-Computing").
+6. **Count**: Generate exactly {{max_labels}} categories.
+
+IMPORTANT: Do not return JSON, reasoning, or any explanations. Return ONLY a plain text list of categories, one per line. 
+Do not include numbering, bullets, or any other formatting.
+
+Do not include any of these excluded terms: {{deny_list}}
+
+Example of correct output format:
+Edge-Computing
+Artificial-Intelligence
+Data-Breach
+Quantum-Computing
