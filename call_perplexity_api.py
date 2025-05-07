@@ -629,21 +629,33 @@ Extract and format the structure precisely. Return ONLY the JSON object with no 
         return None
 
 
-def flexible_response_parser(text: str) -> List[str]:
+def flexible_response_parser(text: Union[str, List, Any]) -> List[str]:
     """
     A flexible parser that can extract labels from various response formats.
     Works with plain lists, JSON, and structured text.
     
     Args:
-        text: Raw text response from the API
+        text: Raw text response from the API (can be string, list, or other)
         
     Returns:
         List of extracted labels
     """
-    logger.info("Parsing response with flexible parser")
+    logger.info(f"Parsing response with flexible parser - type: {type(text)}")
     labels = []
     
-    # Try multiple parsing strategies
+    # Handle case where API directly returns a list
+    if isinstance(text, list):
+        logger.info("Input is already a list, processing directly")
+        return [str(item).strip() for item in text if item is not None]
+    
+    # Ensure we're working with a string for text-based processing
+    if not isinstance(text, str):
+        logger.warning(f"Input is not a string or list but {type(text)}, converting to string")
+        try:
+            text = str(text)
+        except Exception as e:
+            logger.error(f"Failed to convert to string: {e}")
+            return []
     
     # Strategy 1: Direct JSON parsing if it looks like JSON
     if text.strip().startswith('{') or text.strip().startswith('['):
