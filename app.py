@@ -1226,6 +1226,18 @@ Return only the JSON object now.
         st.header("Prompt Editor")
         st.markdown("Create, edit, and test custom prompt versions for different taxonomy generation steps.")
         
+        # Add clear instructions for using the prompt editor
+        st.info("""
+        ### How to Use the Prompt Editor
+        
+        1. **Select an API Provider** at the top (OpenAI or Perplexity)
+        2. **Choose a prompt to view** from the dropdown in either column
+        3. **The default prompts are read-only** - to make changes, click "Save as New Version"
+        4. After creating a custom version, you can edit and update it as needed
+        5. Use the "Test Prompt" section at the bottom to verify your custom prompts work correctly
+        6. Your custom prompts will appear as options in the "Advanced Settings" of the Generate tab
+        """)
+        
         # First, let's initialize default prompts if needed
         if 'prompt_init_run' not in st.session_state:
             try:
