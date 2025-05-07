@@ -685,7 +685,11 @@ def main():
             # Advanced settings expander
             with st.expander("Advanced Settings"):
                 # Custom prompts section
-                st.subheader("Custom Prompts")
+                st.subheader("Custom Prompts 🔗")
+                st.markdown("""
+                Custom prompts allow you to tailor how the AI generates taxonomies. You can create your own prompts
+                in the **Prompt Editor** tab and use them here instead of the default system prompts.
+                """)
                 
                 # Check if we have custom prompts in the database
                 has_custom_prompts = False
