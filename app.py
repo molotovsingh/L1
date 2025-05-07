@@ -1505,6 +1505,52 @@ Return only the JSON object now.
             # Tier selection for testing
             test_tier = st.radio("Test Which Tier?", options=["Tier-A", "Tier-B", "Both"], index=0, key="prompt_test_tier")
             
+            # Model selection based on API provider
+            if prompt_api_provider == "OpenAI":
+                test_model_options = DEFAULT_OPENAI_TIER_A_OPTIONS if test_tier == "Tier-A" else DEFAULT_OPENAI_TIER_B_OPTIONS
+                default_model = "gpt-3.5-turbo"  # A good default that works reliably
+                
+                # Custom model selection
+                test_model = st.selectbox(
+                    "Model to Test With",
+                    options=test_model_options,
+                    index=test_model_options.index(default_model) if default_model in test_model_options else 0,
+                    key="prompt_test_model_openai"
+                )
+                
+                # If custom is selected, show an input field
+                if test_model == "custom":
+                    test_model = st.text_input(
+                        "Custom Model Name",
+                        value="gpt-4o-mini",
+                        key="prompt_test_custom_model_openai",
+                        help="Enter a valid OpenAI model name"
+                    )
+            else:  # Perplexity
+                if test_tier == "Tier-A":
+                    test_model_options = DEFAULT_PERPLEXITY_TIER_A_OPTIONS
+                    default_model = "sonar"
+                else:
+                    test_model_options = DEFAULT_PERPLEXITY_TIER_B_OPTIONS
+                    default_model = "sonar-reasoning"
+                
+                # Custom model selection
+                test_model = st.selectbox(
+                    "Model to Test With",
+                    options=test_model_options,
+                    index=test_model_options.index(default_model) if default_model in test_model_options else 0,
+                    key="prompt_test_model_perplexity"
+                )
+                
+                # If custom is selected, show an input field
+                if test_model == "custom":
+                    test_model = st.text_input(
+                        "Custom Model Name",
+                        value="sonar-pro" if test_tier == "Tier-A" else "sonar-reasoning-pro",
+                        key="prompt_test_custom_model_perplexity",
+                        help="Enter a valid Perplexity model name"
+                    )
+            
             # Sample candidates for Tier-B testing
             if test_tier in ["Tier-B", "Both"]:
                 test_candidates = st.text_area(
@@ -1554,8 +1600,6 @@ Return only the JSON object now.
                     
                     try:
                         if prompt_api_provider == "OpenAI":
-                            # Test with default model to ensure it works
-                            test_model = "gpt-3.5-turbo"  # Use a reliable model for testing
                             with st.spinner(f"Calling OpenAI API with model {test_model}..."):
                                 response, raw_response, timestamp = call_apis.call_tier_a_api(
                                     formatted_prompt, 
@@ -1563,7 +1607,6 @@ Return only the JSON object now.
                                     test_model
                                 )
                         else:  # Perplexity
-                            test_model = "sonar"  # Use standard model for testing
                             with st.spinner(f"Calling Perplexity API with model {test_model}..."):
                                 response, raw_response, timestamp = call_perplexity_api.call_perplexity_api_tier_a(
                                     formatted_prompt, 
@@ -1606,8 +1649,6 @@ Return only the JSON object now.
                     
                     try:
                         if prompt_api_provider == "OpenAI":
-                            # Test with default model to ensure it works
-                            test_model = "gpt-3.5-turbo"  # Use a reliable model for testing
                             with st.spinner(f"Calling OpenAI API with model {test_model}..."):
                                 response, raw_response, timestamp = call_apis.call_openai_api(
                                     formatted_prompt, 
@@ -1615,7 +1656,6 @@ Return only the JSON object now.
                                     test_model
                                 )
                         else:  # Perplexity
-                            test_model = "sonar-reasoning"  # Use reasoning model for better results
                             with st.spinner(f"Calling Perplexity API with model {test_model}..."):
                                 response, raw_response, timestamp = call_perplexity_api.call_perplexity_api_tier_b(
                                     formatted_prompt, 
